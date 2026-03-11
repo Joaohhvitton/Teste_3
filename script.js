@@ -60,6 +60,12 @@ const getDateForWeekday = (baseMonday, weekday) => {
   return addDays(baseMonday, index);
 };
 
+const parseDocumentsInput = (value) =>
+  value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
 
 async function getNextPrimaryKey() {
   const endpoint = `${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?select=id_primary&order=id_primary.desc&limit=1`;
@@ -295,12 +301,35 @@ function openDayRecordsModal(dayName, dateLabel, entries) {
     item.className = "day-record-item";
     item.innerHTML = `
       <h4>${entry.title}</h4>
-      <p>${entry.system}</p>
-      <small>${entry.documents.join(", ")}</small>
+      <p>Sistema: ${entry.system}</p>
+      <small>Documentos: ${entry.documents.join(", ")}</small>
     `;
     dayRecordsList.appendChild(item);
   });
 
+  dayRecordsModal.setAttribute("aria-hidden", "false");
+  animateModalCard(dayRecordsModal);
+}
+
+function openEntryDetailsModal(dayName, dateLabel, entry) {
+  dayRecordsTitle.textContent = `${dayName} • ${dateLabel}`;
+  dayRecordsList.innerHTML = "";
+
+  const item = document.createElement("article");
+  item.className = "day-record-item";
+
+  const documentsMarkup = entry.documents
+    .map((document) => `<li>${document}</li>`)
+    .join("");
+
+  item.innerHTML = `
+    <h4>Erro: ${entry.title}</h4>
+    <p>Sistema: ${entry.system}</p>
+    <small>Documentos (${entry.documents.length}):</small>
+    <ul>${documentsMarkup}</ul>
+  `;
+
+  dayRecordsList.appendChild(item);
   dayRecordsModal.setAttribute("aria-hidden", "false");
   animateModalCard(dayRecordsModal);
 }
@@ -331,15 +360,35 @@ function renderWeek(baseMonday) {
       const entryNode = entryTemplate.content.firstElementChild.cloneNode(true);
       entryNode.classList.add(entry.level);
       entryNode.querySelector("h4").textContent = entry.title;
-      entryNode.querySelector("p").textContent = `${entry.system} • ${entry.documents.join(", ")}`;
       entryNode.querySelector("small").textContent = `${entry.documents.length} erro${entry.documents.length > 1 ? "s" : ""} com documento`;
 
-      const addDocumentBtn = entryNode.querySelector(".add-document-btn");
-      addDocumentBtn.addEventListener("click", () => {
-        const newDocument = window.prompt("Informe o novo documento/cliente:");
-        if (!newDocument) return;
-        entry.documents.push(newDocument.trim());
+      const openDetails = () => {
+        openEntryDetailsModal(day.day, dateLabel, entry);
+      };
+
+      const addDocumentsBtn = entryNode.querySelector(".add-documents-btn");
+      addDocumentsBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const input = window.prompt("Informe os documentos separados por vírgula:");
+        if (!input) return;
+
+        const documents = parseDocumentsInput(input);
+        if (documents.length === 0) return;
+
+        entry.documents.push(...documents);
         renderWeek(selectedMonday);
+      });
+
+      addDocumentsBtn.addEventListener("keydown", (event) => {
+        event.stopPropagation();
+      });
+
+      entryNode.addEventListener("click", openDetails);
+      entryNode.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openDetails();
+        }
       });
 
       entriesRoot.appendChild(entryNode);
@@ -481,3 +530,4 @@ async function initializeApp() {
 }
 
 initializeApp();
+
