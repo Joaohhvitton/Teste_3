@@ -27,8 +27,8 @@
 
         <div class="topbar-right">
           <div class="icon-actions divider-right" aria-label="Ações rápidas">
-            <button class="icon-btn" type="button" aria-label="Notificações">
-              <span class="badge">2</span>
+            <button class="icon-btn" id="notifications-btn" type="button" aria-label="Notificações">
+              <span class="badge" id="notifications-count">0</span>
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M14.5 18h-5m8-6v-1a5.5 5.5 0 1 0-11 0v1c0 2-.9 3.4-2 4h15c-1.1-.6-2-2-2-4Z" />
               </svg>
@@ -77,6 +77,13 @@
       <section class="board" id="board"></section>
     </main>
 
+    <section class="welcome-popup" id="welcome-popup" aria-hidden="true">
+      <div class="welcome-popup-card">
+        <h2>Boas vindas 👋</h2>
+        <p>Bem-vindo ao Painel de Atendimentos N3.</p>
+      </div>
+    </section>
+
     <section class="modal" id="record-modal" aria-hidden="true">
       <form class="modal-card" id="record-form">
         <h3>Novo registro (teste)</h3>
@@ -97,6 +104,26 @@
       </form>
     </section>
 
+    <section class="modal" id="day-records-modal" aria-hidden="true">
+      <div class="modal-card modal-card-wide">
+        <h3 id="day-records-title">Registros do dia</h3>
+        <div id="day-records-list" class="day-records-list"></div>
+        <div class="modal-actions">
+          <button type="button" id="close-day-records">Fechar</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="modal" id="notifications-modal" aria-hidden="true">
+      <div class="modal-card modal-card-wide">
+        <h3>Notificações de novas demandas</h3>
+        <div id="notifications-list" class="day-records-list"></div>
+        <div class="modal-actions">
+          <button type="button" id="close-notifications">Fechar</button>
+        </div>
+      </div>
+    </section>
+
     <template id="day-template">
       <article class="day-column">
         <header class="day-header">
@@ -104,6 +131,7 @@
           <span></span>
         </header>
         <div class="entries"></div>
+        <button class="expand-day-btn" type="button" hidden>Ver todos</button>
       </article>
     </template>
 
