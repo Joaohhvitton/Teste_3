@@ -149,27 +149,28 @@ body {
   border-radius: 9px;
   background: #1b1a31;
   padding: 8px 9px;
-  min-height: 116px;
+  min-height: 96px;
   display: grid;
   align-content: start;
+  cursor: pointer;
 }
 .entry-card.warning { border-left-color: var(--warning); }
 .entry-card.success { border-left-color: var(--success); }
 .entry-card h4 { margin: 0 0 5px; font-size: clamp(0.82rem, 1vw, 1.02rem); line-height: 1.15; }
-.entry-card p { margin: 0 0 6px; color: #d4d7e7; font-size: clamp(0.72rem, 0.85vw, 0.92rem); line-height: 1.2; }
 .entry-card small { font-size: clamp(0.7rem, 0.9vw, 0.92rem); font-weight: 700; color: #f0f3fe; }
 
-.add-document-btn {
-  margin-top: 6px;
+.add-documents-btn {
+  margin-top: 8px;
   justify-self: start;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #eef1fb;
-  font-size: 0.68rem;
-  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #eff1fb;
+  font-size: 0.7rem;
+  padding: 4px 8px;
   cursor: pointer;
 }
+
 
 .expand-day-btn {
   margin-top: 8px;
@@ -204,6 +205,8 @@ body {
 .day-record-item h4 { margin: 0 0 4px; font-size: 0.9rem; }
 .day-record-item p { margin: 0 0 4px; font-size: 0.78rem; color: #cfd3e8; }
 .day-record-item small { font-size: 0.74rem; color: #eff1fb; }
+.day-record-item ul { margin: 6px 0 0 16px; padding: 0; }
+.day-record-item li { margin-bottom: 2px; font-size: 0.78rem; color: #e9ebf7; }
 
 
 .welcome-popup {
