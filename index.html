@@ -33,16 +33,19 @@
                 <path d="M14.5 18h-5m8-6v-1a5.5 5.5 0 1 0-11 0v1c0 2-.9 3.4-2 4h15c-1.1-.6-2-2-2-4Z" />
               </svg>
             </button>
-            <button class="icon-btn" type="button" aria-label="Pesquisar">
+            <button class="icon-btn" id="export-btn" type="button" aria-label="Exportar base">
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="11" cy="11" r="6" />
-                <path d="m20 20-4.2-4.2" />
+                <path d="M6 3h8l4 4v14H6z" />
+                <path d="M14 3v4h4" />
+                <path d="M8.5 10.5 11 14l2.5-3.5M11 14v6" />
+                <path d="M8 20h6" />
               </svg>
             </button>
           </div>
 
           <div class="user-area">
             <img src="Logo_OPCOM-removebg-preview.png" alt="Lucas" class="avatar" />
+            <span><strong>Admin</strong> · OPCOM</span>
           </div>
         </div>
       </header>
@@ -91,6 +94,7 @@
         <label>Incidente <input id="incident-input" required /></label>
         <label>Documento <input id="document-input" required /></label>
         <label>Sistema <input id="system-input" required /></label>
+        <label>Observação <textarea id="observation-input" rows="3" placeholder="Detalhes adicionais do atendimento"></textarea></label>
         <label>
           Dia (automático)
           <input id="day-display" readonly />
@@ -124,6 +128,21 @@
       </div>
     </section>
 
+    <section class="modal" id="documents-modal" aria-hidden="true">
+      <form class="modal-card" id="documents-form">
+        <h3>Adicionar documentos</h3>
+        <p class="documents-modal-help">Separe vários documentos por vírgula.</p>
+        <label>
+          Documentos
+          <textarea id="documents-input" rows="4" placeholder="Ex.: 86099578536, 12345678900"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="cancel-documents">Cancelar</button>
+          <button type="submit">Adicionar</button>
+        </div>
+      </form>
+    </section>
+
     <template id="day-template">
       <article class="day-column">
         <header class="day-header">
@@ -136,11 +155,10 @@
     </template>
 
     <template id="entry-template">
-      <div class="entry-card">
+      <div class="entry-card" role="button" tabindex="0" aria-label="Ver detalhes do registro">
         <h4></h4>
-        <p></p>
         <small></small>
-        <button class="add-document-btn" type="button">+ Documento</button>
+        <button class="add-documents-btn" type="button">+ Documentos</button>
       </div>
     </template>
 
