@@ -5,7 +5,7 @@ window.APP_CONFIG = {
 };
 
 const weekdayOrder = ["SEGUNDA", "TERÇA", "QUARTA", "QUINTA", "SEXTA"];
-const MAX_VISIBLE_ENTRIES_PER_DAY = 4;
+const MAX_VISIBLE_ENTRIES_PER_DAY = 9999;
 
 const board = document.getElementById("board");
 const dayTemplate = document.getElementById("day-template");
@@ -16,14 +16,21 @@ const nextWeekBtn = document.getElementById("next-week");
 const totalAtendimentos = document.getElementById("total-atendimentos");
 
 const notificationsBtn = document.getElementById("notifications-btn");
+const filterBtn = document.getElementById("filter-btn");
 const exportBtn = document.getElementById("export-btn");
 const notificationsCount = document.getElementById("notifications-count");
 const notificationsModal = document.getElementById("notifications-modal");
 const notificationsList = document.getElementById("notifications-list");
 const closeNotificationsBtn = document.getElementById("close-notifications");
+const filterModal = document.getElementById("filter-modal");
+const filterForm = document.getElementById("filter-form");
+const filterSystemSelect = document.getElementById("filter-system-select");
+const clearFilterBtn = document.getElementById("clear-filter");
+const cancelFilterBtn = document.getElementById("cancel-filter");
 const notifications = [];
 
 const welcomePopup = document.getElementById("welcome-popup");
+const welcomeProgressBar = document.getElementById("welcome-progress-bar");
 
 const modal = document.getElementById("record-modal");
 const form = document.getElementById("record-form");
@@ -45,6 +52,13 @@ const documentsModal = document.getElementById("documents-modal");
 const documentsForm = document.getElementById("documents-form");
 const documentsInput = document.getElementById("documents-input");
 const cancelDocumentsBtn = document.getElementById("cancel-documents");
+
+const editEntryModal = document.getElementById("edit-entry-modal");
+const editEntryForm = document.getElementById("edit-entry-form");
+const editIncidentInput = document.getElementById("edit-incident-input");
+const editSystemInput = document.getElementById("edit-system-input");
+const editObservationInput = document.getElementById("edit-observation-input");
+const cancelEditEntryBtn = document.getElementById("cancel-edit-entry");
 
 const APP_CONFIG = {
   supabaseUrl: window.APP_CONFIG?.supabaseUrl || "https://qqexlkssyarkmhnxzcbc.supabase.co",
@@ -87,6 +101,10 @@ const formatNotificationTime = (value) => {
   return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 };
 
+const emitDashboardEvent = (name, message) => {
+  window.dispatchEvent(new CustomEvent(name, { detail: { message } }));
+};
+
 const getExportFilename = (contentDisposition) => {
   if (typeof contentDisposition !== "string") {
     return `base_atendimentos_${Date.now()}.xlsx`;
@@ -100,30 +118,110 @@ const getExportFilename = (contentDisposition) => {
   return decodeURIComponent(match[1].trim());
 };
 
-async function exportDatabaseFromEdgeFunction() {
-  const endpoint = `${APP_CONFIG.supabaseUrl}/functions/v1/${APP_CONFIG.exportFunctionName}`;
-  const headers = {
-    apikey: APP_CONFIG.supabaseAnonKey,
-    Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
-  };
+const escapeCsvCell = (value) => {
+  const normalized = String(value ?? "").replace(/"/g, '""');
+  return `"${normalized}"`;
+};
 
-  const response = await fetch(endpoint, { method: "GET", headers });
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Falha ao exportar base: ${response.status} ${body}`);
-  }
+const buildRowsForLocalExport = () => {
+  const rows = [];
 
-  const blob = await response.blob();
-  const filename = getExportFilename(response.headers.get("content-disposition"));
+  weekStore.forEach((weekData, weekKey) => {
+    weekData.forEach((dayData) => {
+      dayData.entries.forEach((entry) => {
+        rows.push({
+          semana: weekKey,
+          dia_semana: dayData.day,
+          incidente: entry.title,
+          sistema: entry.system,
+          observacao: entry.observation || "",
+          documentos: entry.documents.join(", "),
+          quantidade_documentos: entry.documents.length,
+        });
+      });
+    });
+  });
 
+  return rows;
+};
+
+const downloadLocalCsvFallback = () => {
+  const headers = [
+    "semana",
+    "dia_semana",
+    "incidente",
+    "sistema",
+    "observacao",
+    "documentos",
+    "quantidade_documentos",
+  ];
+
+  const rows = buildRowsForLocalExport();
+  const lines = [headers.join(",")];
+
+  rows.forEach((row) => {
+    lines.push(headers.map((header) => escapeCsvCell(row[header])).join(","));
+  });
+
+  const csv = `﻿${lines.join("\n")}`;
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename;
+  link.download = `base_atendimentos_local_${Date.now()}.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+};
+
+async function exportDatabaseFromEdgeFunction() {
+  const endpoint = `${APP_CONFIG.supabaseUrl}/functions/v1/${APP_CONFIG.exportFunctionName}`;
+  const authenticatedHeaders = {
+    apikey: APP_CONFIG.supabaseAnonKey,
+    Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
+  };
+
+  const tryDownloadFromResponse = async (response) => {
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Falha ao exportar base: ${response.status} ${body}`);
+    }
+
+    const blob = await response.blob();
+    const filename = getExportFilename(response.headers.get("content-disposition"));
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  try {
+    const response = await fetch(endpoint, { method: "GET", headers: authenticatedHeaders });
+    await tryDownloadFromResponse(response);
+    return;
+  } catch (primaryError) {
+    try {
+      const responseWithoutHeaders = await fetch(endpoint, { method: "GET" });
+      await tryDownloadFromResponse(responseWithoutHeaders);
+      return;
+    } catch (secondaryError) {
+      const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
+      const secondaryMessage = secondaryError instanceof Error ? secondaryError.message : String(secondaryError);
+
+      downloadLocalCsvFallback();
+      window.alert(
+        `Não foi possível baixar da Edge Function. Baixamos um CSV local do painel como fallback.
+
+Detalhes: ${primaryMessage} | ${secondaryMessage}`,
+      );
+    }
+  }
 }
 
 
@@ -188,7 +286,7 @@ async function saveAttendanceToDatabase({ incident, documentValue, system, obser
     });
 
     if (response.ok) {
-      return;
+      return payload.id_primary;
     }
 
     const body = await response.text();
@@ -199,6 +297,52 @@ async function saveAttendanceToDatabase({ incident, documentValue, system, obser
     }
 
     throw new Error("Falha ao salvar no Supabase.");
+  }
+}
+
+async function updateAttendanceInDatabase({ idPrimary, incident, system, observationValue }) {
+  const endpoint = `${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?id_primary=eq.${idPrimary}`;
+  const headers = {
+    "Content-Type": "application/json",
+    apikey: APP_CONFIG.supabaseAnonKey,
+    Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
+    Prefer: "return=minimal",
+  };
+
+  const payload = {
+    incidente: incident,
+    sistema: system,
+    observacao: observationValue || "",
+  };
+
+  const response = await fetch(endpoint, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Supabase ${response.status}: ${body}`);
+  }
+}
+
+async function deleteAttendanceFromDatabase(idPrimary) {
+  const endpoint = `${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?id_primary=eq.${idPrimary}`;
+  const headers = {
+    apikey: APP_CONFIG.supabaseAnonKey,
+    Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
+    Prefer: "return=minimal",
+  };
+
+  const response = await fetch(endpoint, {
+    method: "DELETE",
+    headers,
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Supabase ${response.status}: ${body}`);
   }
 }
 
@@ -239,6 +383,7 @@ async function loadAttendancesFromDatabase() {
     if (!dayData) return;
 
     dayData.entries.push({
+      id_primary: row.id_primary,
       title: row.incidente || "Sem incidente",
       system: row.sistema || "Sem sistema",
       documents: [row.documento || "Sem documento"],
@@ -301,6 +446,8 @@ const buildEmptyWeek = () =>
 const weekStore = new Map();
 let selectedMonday = getMonday(new Date());
 let selectedEntryForDocuments = null;
+let selectedEntryForEdit = null;
+let activeSystemFilter = "ALL";
 
 function getActiveWeekData() {
   const key = getWeekKey(selectedMonday);
@@ -317,10 +464,18 @@ function updateTotal(weekData) {
 
 function showWelcomePopup() {
   if (!welcomePopup) return;
+
   welcomePopup.setAttribute("aria-hidden", "false");
+
+  if (welcomeProgressBar) {
+    welcomeProgressBar.classList.remove("is-running");
+    void welcomeProgressBar.offsetWidth;
+    welcomeProgressBar.classList.add("is-running");
+  }
+
   window.setTimeout(() => {
     welcomePopup.setAttribute("aria-hidden", "true");
-  }, 4000);
+  }, 3000);
 }
 
 function renderNotifications() {
@@ -349,10 +504,44 @@ function openNotificationsModal() {
   renderNotifications();
   notificationsModal.setAttribute("aria-hidden", "false");
   animateModalCard(notificationsModal);
+  emitDashboardEvent("dashboard:popup-opened", "Notificações abertas");
 }
 
 function closeNotificationsModal() {
   notificationsModal.setAttribute("aria-hidden", "true");
+}
+
+function getUniqueSystemsFromWeek() {
+  const systems = new Set();
+  getActiveWeekData().forEach((dayData) => {
+    dayData.entries.forEach((entry) => {
+      if (entry.system) {
+        systems.add(entry.system);
+      }
+    });
+  });
+  return [...systems].sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
+function populateSystemFilterOptions() {
+  const options = ['<option value="ALL">Todos os sistemas</option>'];
+  getUniqueSystemsFromWeek().forEach((system) => {
+    const selected = system === activeSystemFilter ? ' selected' : '';
+    options.push(`<option value="${system}"${selected}>${system}</option>`);
+  });
+  filterSystemSelect.innerHTML = options.join("");
+}
+
+function openFilterModal() {
+  populateSystemFilterOptions();
+  filterModal.setAttribute("aria-hidden", "false");
+  animateModalCard(filterModal);
+  filterSystemSelect.focus();
+  emitDashboardEvent("dashboard:popup-opened", "Filtro de sistema aberto");
+}
+
+function closeFilterModal() {
+  filterModal.setAttribute("aria-hidden", "true");
 }
 
 function openDayRecordsModal(dayName, dateLabel, entries) {
@@ -391,7 +580,50 @@ function openEntryDetailsModal(dayName, dateLabel, entry) {
     ${entry.observation ? `<p>Observação: ${entry.observation}</p>` : ""}
     <small>Documentos (${entry.documents.length}):</small>
     <ul>${documentsMarkup}</ul>
+    <div class="detail-actions">
+      <button type="button" class="detail-add-doc-btn">+ Documento</button>
+      <button type="button" class="detail-edit-btn">Editar demanda</button>
+      <button type="button" class="detail-delete-btn">Excluir demanda</button>
+    </div>
   `;
+
+  item.querySelector(".detail-add-doc-btn").addEventListener("click", () => {
+    openDocumentsModal(entry);
+  });
+
+  item.querySelector(".detail-edit-btn").addEventListener("click", () => {
+    openEditEntryModal(entry);
+  });
+
+  item.querySelector(".detail-delete-btn").addEventListener("click", async () => {
+    const confirmed = window.confirm("Deseja realmente excluir esta demanda?");
+    if (!confirmed) return;
+
+    if (!entry.id_primary) {
+      window.alert("Não foi possível excluir no banco: id_primary não encontrado.");
+      return;
+    }
+
+    try {
+      await deleteAttendanceFromDatabase(entry.id_primary);
+    } catch (error) {
+      window.alert(`Não foi possível excluir no banco: ${error.message}`);
+      return;
+    }
+
+    const weekData = getActiveWeekData();
+    const dayData = weekData.find((itemData) => itemData.day === dayName);
+    if (!dayData) return;
+
+    const index = dayData.entries.indexOf(entry);
+    if (index < 0) return;
+
+    dayData.entries.splice(index, 1);
+    closeDayRecordsModal();
+    renderWeek(selectedMonday);
+    renderNotifications();
+    emitDashboardEvent("dashboard:action-warning", "Demanda excluída");
+  });
 
   dayRecordsList.appendChild(item);
   dayRecordsModal.setAttribute("aria-hidden", "false");
@@ -419,26 +651,19 @@ function renderWeek(baseMonday) {
     const entriesRoot = dayNode.querySelector(".entries");
     const expandDayBtn = dayNode.querySelector(".expand-day-btn");
 
-    const visibleEntries = day.entries.slice(0, MAX_VISIBLE_ENTRIES_PER_DAY);
+    const visibleEntries = activeSystemFilter === "ALL"
+      ? day.entries
+      : day.entries.filter((entry) => entry.system === activeSystemFilter);
     visibleEntries.forEach((entry) => {
       const entryNode = entryTemplate.content.firstElementChild.cloneNode(true);
       entryNode.classList.add(entry.level);
       entryNode.querySelector("h4").textContent = entry.title;
+      entryNode.querySelector(".system-pill").textContent = entry.system || "Sem sistema";
       entryNode.querySelector("small").textContent = `${entry.documents.length} erro${entry.documents.length > 1 ? "s" : ""} com documento`;
 
       const openDetails = () => {
         openEntryDetailsModal(day.day, dateLabel, entry);
       };
-
-      const addDocumentsBtn = entryNode.querySelector(".add-documents-btn");
-      addDocumentsBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        openDocumentsModal(entry);
-      });
-
-      addDocumentsBtn.addEventListener("keydown", (event) => {
-        event.stopPropagation();
-      });
 
       entryNode.addEventListener("click", openDetails);
       entryNode.addEventListener("keydown", (event) => {
@@ -451,14 +676,7 @@ function renderWeek(baseMonday) {
       entriesRoot.appendChild(entryNode);
     });
 
-    if (day.entries.length > MAX_VISIBLE_ENTRIES_PER_DAY) {
-      const hiddenCount = day.entries.length - MAX_VISIBLE_ENTRIES_PER_DAY;
-      expandDayBtn.hidden = false;
-      expandDayBtn.textContent = `Expandir (${hiddenCount}+)`;
-      expandDayBtn.addEventListener("click", () => {
-        openDayRecordsModal(day.day, dateLabel, day.entries);
-      });
-    }
+    expandDayBtn.hidden = true;
 
     board.appendChild(dayNode);
   });
@@ -481,6 +699,7 @@ function openModal() {
   modal.setAttribute("aria-hidden", "false");
   animateModalCard(modal);
   incidentInput.focus();
+  emitDashboardEvent("dashboard:popup-opened", "Novo registro");
 }
 
 function closeModal() {
@@ -493,6 +712,7 @@ function openDocumentsModal(entry) {
   documentsModal.setAttribute("aria-hidden", "false");
   animateModalCard(documentsModal);
   documentsInput.focus();
+  emitDashboardEvent("dashboard:popup-opened", "Adicionar documento");
 }
 
 function closeDocumentsModal() {
@@ -500,11 +720,27 @@ function closeDocumentsModal() {
   selectedEntryForDocuments = null;
 }
 
+function openEditEntryModal(entry) {
+  selectedEntryForEdit = entry;
+  editIncidentInput.value = entry.title || "";
+  editSystemInput.value = entry.system || "";
+  editObservationInput.value = entry.observation || "";
+  editEntryModal.setAttribute("aria-hidden", "false");
+  animateModalCard(editEntryModal);
+  emitDashboardEvent("dashboard:popup-opened", "Editar demanda");
+}
+
+function closeEditEntryModal() {
+  editEntryModal.setAttribute("aria-hidden", "true");
+  selectedEntryForEdit = null;
+}
+
 createRecordBtn.addEventListener("click", openModal);
 cancelRecordBtn.addEventListener("click", closeModal);
 closeDayRecordsBtn.addEventListener("click", closeDayRecordsModal);
 notificationsBtn.addEventListener("click", openNotificationsModal);
 closeNotificationsBtn.addEventListener("click", closeNotificationsModal);
+filterBtn.addEventListener("click", openFilterModal);
 if (exportBtn) {
   exportBtn.addEventListener("click", async () => {
     try {
@@ -533,6 +769,27 @@ notificationsModal.addEventListener("click", (event) => {
   }
 });
 
+filterModal.addEventListener("click", (event) => {
+  if (event.target === filterModal) {
+    closeFilterModal();
+  }
+});
+
+cancelFilterBtn.addEventListener("click", closeFilterModal);
+
+clearFilterBtn.addEventListener("click", () => {
+  activeSystemFilter = "ALL";
+  closeFilterModal();
+  renderWeek(selectedMonday);
+});
+
+filterForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  activeSystemFilter = filterSystemSelect.value || "ALL";
+  closeFilterModal();
+  renderWeek(selectedMonday);
+});
+
 documentsModal.addEventListener("click", (event) => {
   if (event.target === documentsModal) {
     closeDocumentsModal();
@@ -540,6 +797,54 @@ documentsModal.addEventListener("click", (event) => {
 });
 
 cancelDocumentsBtn.addEventListener("click", closeDocumentsModal);
+cancelEditEntryBtn.addEventListener("click", closeEditEntryModal);
+
+editEntryModal.addEventListener("click", (event) => {
+  if (event.target === editEntryModal) {
+    closeEditEntryModal();
+  }
+});
+
+editEntryForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  if (!selectedEntryForEdit) {
+    closeEditEntryModal();
+    return;
+  }
+
+  const incident = editIncidentInput.value.trim();
+  const system = editSystemInput.value.trim();
+  const observation = editObservationInput.value.trim();
+
+  if (!incident || !system) return;
+
+  if (!selectedEntryForEdit.id_primary) {
+    window.alert("Não foi possível editar no banco: id_primary não encontrado.");
+    return;
+  }
+
+  try {
+    await updateAttendanceInDatabase({
+      idPrimary: selectedEntryForEdit.id_primary,
+      incident,
+      system,
+      observationValue: observation,
+    });
+  } catch (error) {
+    window.alert(`Não foi possível editar no banco: ${error.message}`);
+    return;
+  }
+
+  selectedEntryForEdit.title = incident;
+  selectedEntryForEdit.system = system;
+  selectedEntryForEdit.observation = observation;
+
+  closeEditEntryModal();
+  closeDayRecordsModal();
+  renderWeek(selectedMonday);
+  emitDashboardEvent("dashboard:action-success", "Demanda editada com sucesso");
+});
 
 documentsForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -558,6 +863,7 @@ documentsForm.addEventListener("submit", (event) => {
   selectedEntryForDocuments.documents.push(...documents);
   closeDocumentsModal();
   renderWeek(selectedMonday);
+  emitDashboardEvent("dashboard:action-success", "Documento(s) adicionado(s)");
 });
 
 form.addEventListener("submit", async (event) => {
@@ -578,8 +884,9 @@ form.addEventListener("submit", async (event) => {
   const weekEnd = formatDate(addDays(selectedMonday, 4));
   const dateValue = getDateForWeekday(selectedMonday, day).toISOString().split("T")[0];
 
+  let persistedId = null;
   try {
-    await saveAttendanceToDatabase({
+    persistedId = await saveAttendanceToDatabase({
       incident,
       documentValue,
       system,
@@ -595,6 +902,7 @@ form.addEventListener("submit", async (event) => {
   }
 
   dayData.entries.push({
+    id_primary: persistedId,
     title: incident,
     system,
     documents: [documentValue],
@@ -613,6 +921,7 @@ form.addEventListener("submit", async (event) => {
   renderNotifications();
   closeModal();
   renderWeek(selectedMonday);
+  emitDashboardEvent("dashboard:action-success", "Registro salvo com animação");
 });
 
 prevWeekBtn.addEventListener("click", () => {
