@@ -6,7 +6,6 @@
     <title>Painel de Atendimentos N3</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="icon" type="imge/png" sizes="32x32" href="favicon-32x32-removebg-preview.png"
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
@@ -32,6 +31,12 @@
               <span class="badge" id="notifications-count">0</span>
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M14.5 18h-5m8-6v-1a5.5 5.5 0 1 0-11 0v1c0 2-.9 3.4-2 4h15c-1.1-.6-2-2-2-4Z" />
+              </svg>
+            </button>
+            <button class="icon-btn" id="filter-btn" type="button" aria-label="Filtrar por sistema">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
               </svg>
             </button>
             <button class="icon-btn" id="export-btn" type="button" aria-label="Exportar base">
@@ -81,10 +86,15 @@
       <section class="board" id="board"></section>
     </main>
 
+    <div id="react-animations-root" aria-hidden="true"></div>
+
     <section class="welcome-popup" id="welcome-popup" aria-hidden="true">
       <div class="welcome-popup-card">
         <h2>Boas vindas 👋</h2>
         <p>Bem-vindo ao Painel de Atendimentos N3.</p>
+        <div class="welcome-progress-track" aria-hidden="true">
+          <span class="welcome-progress-bar" id="welcome-progress-bar"></span>
+        </div>
       </div>
     </section>
 
@@ -144,6 +154,34 @@
       </form>
     </section>
 
+    <section class="modal" id="edit-entry-modal" aria-hidden="true">
+      <form class="modal-card" id="edit-entry-form">
+        <h3>Editar demanda</h3>
+        <label>Incidente <input id="edit-incident-input" required /></label>
+        <label>Sistema <input id="edit-system-input" required /></label>
+        <label>Observação <textarea id="edit-observation-input" rows="3" placeholder="Detalhes da demanda"></textarea></label>
+        <div class="modal-actions">
+          <button type="button" id="cancel-edit-entry">Cancelar</button>
+          <button type="submit">Salvar alterações</button>
+        </div>
+      </form>
+    </section>
+
+
+    <section class="modal" id="filter-modal" aria-hidden="true">
+      <form class="modal-card" id="filter-form">
+        <h3>Filtrar demandas por sistema</h3>
+        <label>
+          Sistema
+          <select id="filter-system-select"></select>
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="clear-filter">Limpar</button>
+          <button type="button" id="cancel-filter">Cancelar</button>
+          <button type="submit">Aplicar</button>
+        </div>
+      </form>
+    </section>
     <template id="day-template">
       <article class="day-column">
         <header class="day-header">
@@ -158,11 +196,14 @@
     <template id="entry-template">
       <div class="entry-card" role="button" tabindex="0" aria-label="Ver detalhes do registro">
         <h4></h4>
+        <span class="system-pill"></span>
         <small></small>
-        <button class="add-documents-btn" type="button">+ Documentos</button>
       </div>
     </template>
 
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="react-animations.js"></script>
     <script src="script.js"></script>
   </body>
 </html>
