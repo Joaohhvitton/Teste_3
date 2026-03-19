@@ -129,6 +129,38 @@ body {
   font-weight: 700;
   padding: 0 14px;
   cursor: pointer;
+  box-shadow: 0 0 0 rgba(255, 79, 134, 0.32), 0 0 0 rgba(255, 79, 134, 0.22);
+  animation: createBtnGlow 1.9s ease-in-out infinite;
+  transition: transform 0.2s ease;
+}
+
+.create-btn {
+  height: 34px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #ff4f86, #ff2f70);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0 14px;
+  cursor: pointer;
+  box-shadow: 0 0 0 rgba(255, 79, 134, 0.32), 0 0 0 rgba(255, 79, 134, 0.22);
+  animation: createBtnGlow 1.9s ease-in-out infinite;
+  transition: transform 0.2s ease;
+}
+
+.create-btn:hover {
+  transform: translateY(-1px);
+}
+
+@keyframes createBtnGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(255, 79, 134, 0.32), 0 0 0 rgba(255, 79, 134, 0.22);
+  }
+  50% {
+    box-shadow: 0 0 14px rgba(255, 79, 134, 0.7), 0 0 28px rgba(255, 79, 134, 0.45);
+  }
 }
 
 .week-card {
@@ -139,6 +171,13 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.week-card.is-changing {
+  border-color: rgba(255, 255, 255, 0.24);
+  box-shadow: 0 0 20px rgba(111, 130, 255, 0.24);
+  transform: translateY(-1px);
 }
 
 .week-icon {
@@ -146,6 +185,7 @@ body {
   height: 22px;
   display: grid;
   place-items: center;
+  animation: calendarFloat 2.8s ease-in-out infinite;
 }
 
 .week-icon svg {
@@ -154,8 +194,35 @@ body {
   stroke: #d8dbeb;
   stroke-width: 1.7;
   stroke-linecap: round;
-  stroke-linejoin: round;
+ stroke-linejoin: round;
 }
+
+.week-card.is-changing .week-icon {
+  animation: calendarFlip 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.week-card.is-changing strong {
+  animation: weekRangeGlow 0.5s ease;
+}
+
+@keyframes calendarFloat {
+  0%,
+  100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+@keyframes calendarFlip {
+  0% { transform: rotate(0deg) scale(1); }
+  45% { transform: rotate(-12deg) scale(1.12); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+
+@keyframes weekRangeGlow {
+  0% { text-shadow: none; }
+  50% { text-shadow: 0 0 14px rgba(145, 168, 255, 0.8); }
+  100% { text-shadow: none; }
+}
+
 
 .week-content { display: grid; gap: 2px; }
 .week-card p { margin: 0; color: var(--muted); font-size: 0.72rem; }
@@ -209,7 +276,7 @@ body {
   border-left: 3px solid var(--danger);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
-  background: linear-gradient(180deg, #232147 0%, #1c1a3a 100%);
+  background: linear-gradient(180deg, #262454 0%, #1a1938 100%);
   padding: 11px 10px;
   min-height: 126px;
   display: flex;
@@ -217,11 +284,51 @@ body {
   gap: 7px;
   justify-content: flex-start;
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 18px rgba(6, 8, 28, 0.34);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.entry-card::after {
+  content: "";
+  position: absolute;
+  inset: -70% auto -70% -150%;
+  width: 52%;
+  background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+  transform: rotate(14deg);
+  transition: left 0.38s ease;
+  pointer-events: none;
+}
+
+.entry-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 26px rgba(6, 8, 28, 0.5);
+}
+
+.entry-card:hover::after {
+  left: 135%;
+}
+
+.entry-card.is-entering {
+  animation: cardReveal 0.44s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .entry-card.warning { border-left-color: var(--warning); }
 .entry-card.success { border-left-color: var(--success); }
 .entry-card h4 { margin: 0 0 2px; font-size: clamp(0.9rem, 1vw, 1.08rem); line-height: 1.15; color: #f8f9ff; text-shadow: 0 0 12px rgba(255, 255, 255, 0.06); }
 .entry-card small { font-size: clamp(0.78rem, 0.9vw, 0.94rem); font-weight: 700; color: #f6f8ff; margin-top: 2px; }
+
+@keyframes cardReveal {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 
 .system-pill {
   position: relative;
