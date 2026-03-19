@@ -8,6 +8,8 @@ const weekdayOrder = ["SEGUNDA", "TERÇA", "QUARTA", "QUINTA", "SEXTA"];
 const MAX_VISIBLE_ENTRIES_PER_DAY = 9999;
 
 const board = document.getElementById("board");
+const weekCard = document.querySelector(".week-card");
+const weekIcon = document.querySelector(".week-icon");
 const dayTemplate = document.getElementById("day-template");
 const entryTemplate = document.getElementById("entry-template");
 const weekRange = document.getElementById("week-range");
@@ -634,6 +636,32 @@ function closeDayRecordsModal() {
   dayRecordsModal.setAttribute("aria-hidden", "true");
 }
 
+function animateCalendarChange() {
+  if (!weekCard || !weekIcon) return;
+
+  weekCard.classList.remove("is-changing");
+  weekIcon.classList.remove("is-changing");
+  void weekCard.offsetWidth;
+  weekCard.classList.add("is-changing");
+  weekIcon.classList.add("is-changing");
+
+  window.setTimeout(() => {
+    weekCard.classList.remove("is-changing");
+    weekIcon.classList.remove("is-changing");
+  }, 520);
+}
+
+function animateCalendarChange() {
+  if (!weekCard || !weekIcon) return;
+
+  weekCard.classList.remove("is-changing");
+  weekIcon.classList.remove("is-changing");
+  void weekCard.offsetWidth;
+  weekCard.classList.add("is-changing");
+  weekIcon.classList.add("is-changing");
+}
+
+
 function renderWeek(baseMonday) {
   board.innerHTML = "";
   const friday = addDays(baseMonday, 4);
@@ -654,12 +682,15 @@ function renderWeek(baseMonday) {
     const visibleEntries = activeSystemFilter === "ALL"
       ? day.entries
       : day.entries.filter((entry) => entry.system === activeSystemFilter);
-    visibleEntries.forEach((entry) => {
+       visibleEntries.forEach((entry, entryIndex) => {
       const entryNode = entryTemplate.content.firstElementChild.cloneNode(true);
       entryNode.classList.add(entry.level);
+      entryNode.classList.add("is-entering");
+      entryNode.style.animationDelay = `${Math.min(entryIndex * 70, 280)}ms`;
       entryNode.querySelector("h4").textContent = entry.title;
       entryNode.querySelector(".system-pill").textContent = entry.system || "Sem sistema";
       entryNode.querySelector("small").textContent = `${entry.documents.length} erro${entry.documents.length > 1 ? "s" : ""} com documento`;
+
 
       const openDetails = () => {
         openEntryDetailsModal(day.day, dateLabel, entry);
@@ -927,12 +958,15 @@ form.addEventListener("submit", async (event) => {
 prevWeekBtn.addEventListener("click", () => {
   selectedMonday = addDays(selectedMonday, -7);
   renderWeek(selectedMonday);
+  animateCalendarChange();
 });
 
 nextWeekBtn.addEventListener("click", () => {
   selectedMonday = addDays(selectedMonday, 7);
   renderWeek(selectedMonday);
+  animateCalendarChange();
 });
+
 
 async function initializeApp() {
   showWelcomePopup();
