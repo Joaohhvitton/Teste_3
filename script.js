@@ -20,21 +20,34 @@ const totalAtendimentos = document.getElementById("total-atendimentos");
 const notificationsBtn = document.getElementById("notifications-btn");
 const filterBtn = document.getElementById("filter-btn");
 const exportBtn = document.getElementById("export-btn");
+const summaryBtn = document.getElementById("summary-btn");
+
 const notificationsCount = document.getElementById("notifications-count");
 const notificationsModal = document.getElementById("notifications-modal");
 const notificationsList = document.getElementById("notifications-list");
 const closeNotificationsBtn = document.getElementById("close-notifications");
+
 const filterModal = document.getElementById("filter-modal");
 const filterForm = document.getElementById("filter-form");
 const filterSystemSelect = document.getElementById("filter-system-select");
 const clearFilterBtn = document.getElementById("clear-filter");
 const cancelFilterBtn = document.getElementById("cancel-filter");
+
+const analyticsModal = document.getElementById("analytics-modal");
+const analyticsWeekRange = document.getElementById("analytics-week-range");
+const closeAnalyticsBtn = document.getElementById("close-analytics");
+const analyticsPrevWeekBtn = document.getElementById("analytics-prev-week");
+const analyticsNextWeekBtn = document.getElementById("analytics-next-week");
+const chartDemandPerDay = document.getElementById("chart-demand-per-day");
+const chartTopCases = document.getElementById("chart-top-cases");
+const chartTopSystems = document.getElementById("chart-top-systems");
+const chartProblemsByDay = document.getElementById("chart-problems-by-day");
+
 const notifications = [];
 const ALERT_WINDOWS = [
   { id: "morning", label: "12:00", startHour: 0, endHour: 12 },
   { id: "afternoon", label: "16:00", startHour: 12, endHour: 16 },
 ];
-
 
 const welcomePopup = document.getElementById("welcome-popup");
 const welcomeProgressBar = document.getElementById("welcome-progress-bar");
@@ -218,7 +231,6 @@ Detalhes: ${primaryMessage} | ${secondaryMessage}`,
   }
 }
 
-
 async function getNextPrimaryKey() {
   const endpoint = `${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?select=id_primary&order=id_primary.desc&limit=1`;
   const headers = {
@@ -243,7 +255,16 @@ async function getNextPrimaryKey() {
   return 1;
 }
 
-async function saveAttendanceToDatabase({ incident, documentValue, system, observationValue, day, weekStart, weekEnd, dateValue }) {
+async function saveAttendanceToDatabase({
+  incident,
+  documentValue,
+  system,
+  observationValue,
+  day,
+  weekStart,
+  weekEnd,
+  dateValue,
+}) {
   const endpoint = `${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}`;
   const headers = {
     "Content-Type": "application/json",
@@ -395,7 +416,6 @@ async function loadAttendancesFromDatabase() {
   });
 }
 
-
 const formatDate = (date) =>
   date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
@@ -439,21 +459,31 @@ const buildEmptyWeek = () =>
 
 const weekStore = new Map();
 let selectedMonday = getMonday(new Date());
+let analyticsMonday = null;
 let selectedEntryForDocuments = null;
 let selectedEntryForEdit = null;
 let activeSystemFilter = "ALL";
 
-function getActiveWeekData() {
-  const key = getWeekKey(selectedMonday);
+function getWeekDataForMonday(monday) {
+  const key = getWeekKey(monday);
   if (!weekStore.has(key)) {
     weekStore.set(key, buildEmptyWeek());
   }
   return weekStore.get(key);
 }
 
+function getActiveWeekData() {
+  return getWeekDataForMonday(selectedMonday);
+}
+
 function updateTotal(weekData) {
-  const total = weekData.flatMap((day) => day.entries).reduce((acc, item) => acc + item.documents.length, 0);
-  totalAtendimentos.textContent = String(total);
+  const total = weekData
+    .flatMap((day) => day.entries)
+    .reduce((acc, item) => acc + item.documents.length, 0);
+
+  if (totalAtendimentos) {
+    totalAtendimentos.textContent = String(total);
+  }
 }
 
 function showWelcomePopup() {
@@ -473,6 +503,8 @@ function showWelcomePopup() {
 }
 
 function renderNotifications() {
+  if (!notificationsCount || !notificationsList) return;
+
   const now = new Date();
   const todaySummaries = ALERT_WINDOWS.map((windowConfig) => {
     const count = notifications.filter((item) => {
@@ -517,8 +549,8 @@ function renderNotifications() {
   });
 }
 
-
 function openNotificationsModal() {
+  if (!notificationsModal) return;
   renderNotifications();
   notificationsModal.setAttribute("aria-hidden", "false");
   animateModalCard(notificationsModal);
@@ -526,7 +558,107 @@ function openNotificationsModal() {
 }
 
 function closeNotificationsModal() {
+  if (!notificationsModal) return;
   notificationsModal.setAttribute("aria-hidden", "true");
+}
+
+function getTopEntries(sourceMap, limit = 5) {
+  return [...sourceMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
+}
+
+function renderHorizontalChart(container, data, emptyMessage) {
+  if (!container) return;
+  container.innerHTML = "";
+
+  if (!data.length) {
+    container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
+    return;
+  }
+
+  const maxValue = Math.max(...data.map((item) => item.value), 1);
+
+  data.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "chart-row";
+    const widthPercent = (item.value / maxValue) * 100;
+
+    row.innerHTML = `
+      <span class="chart-row-label" title="${item.label}">${item.label}</span>
+      <span class="chart-bar-track"><span class="chart-bar-fill" style="width:${widthPercent}%;"></span></span>
+      <span class="chart-row-value">${item.value}</span>
+    `;
+
+    container.appendChild(row);
+  });
+}
+
+function buildWeeklyAnalytics(weekData) {
+  const demandsByDay = weekdayOrder.map((dayName) => {
+    const dayData = weekData.find((item) => item.day === dayName);
+    const demandsCount = dayData?.entries.length || 0;
+    return { label: dayName, value: demandsCount };
+  });
+
+  const problemsByDay = weekdayOrder.map((dayName) => {
+    const dayData = weekData.find((item) => item.day === dayName);
+    const problemsCount = (dayData?.entries || []).reduce((acc, entry) => acc + entry.documents.length, 0);
+    return { label: dayName, value: problemsCount };
+  });
+
+  const incidentMap = new Map();
+  const systemMap = new Map();
+
+  weekData.forEach((dayData) => {
+    dayData.entries.forEach((entry) => {
+      incidentMap.set(entry.title, (incidentMap.get(entry.title) || 0) + 1);
+      systemMap.set(entry.system, (systemMap.get(entry.system) || 0) + 1);
+    });
+  });
+
+  const topCases = getTopEntries(incidentMap).map(([label, value]) => ({ label, value }));
+  const topSystems = getTopEntries(systemMap).map(([label, value]) => ({ label, value }));
+  const topDaysByProblems = [...problemsByDay].sort((a, b) => b.value - a.value);
+
+  return {
+    demandsByDay,
+    topCases,
+    topSystems,
+    topDaysByProblems,
+  };
+}
+
+function renderAnalyticsModal() {
+  if (!analyticsModal || !analyticsWeekRange) return;
+
+  if (!analyticsMonday) {
+    analyticsMonday = new Date(selectedMonday);
+  }
+
+  const friday = addDays(analyticsMonday, 4);
+  analyticsWeekRange.textContent = `${formatDate(analyticsMonday)} - ${formatDate(friday)}`;
+
+  const weekData = getWeekDataForMonday(analyticsMonday);
+  const analytics = buildWeeklyAnalytics(weekData);
+
+  renderHorizontalChart(chartDemandPerDay, analytics.demandsByDay, "Sem demandas nesta semana.");
+  renderHorizontalChart(chartTopCases, analytics.topCases, "Sem casos para analisar nesta semana.");
+  renderHorizontalChart(chartTopSystems, analytics.topSystems, "Sem sistemas com ocorrências nesta semana.");
+  renderHorizontalChart(chartProblemsByDay, analytics.topDaysByProblems, "Sem problemas registrados nesta semana.");
+}
+
+function openAnalyticsModal() {
+  if (!analyticsModal) return;
+
+  analyticsMonday = new Date(selectedMonday);
+  renderAnalyticsModal();
+  analyticsModal.setAttribute("aria-hidden", "false");
+  animateModalCard(analyticsModal);
+  emitDashboardEvent("dashboard:popup-opened", "Resumo semanal aberto");
+}
+
+function closeAnalyticsModal() {
+  if (!analyticsModal) return;
+  analyticsModal.setAttribute("aria-hidden", "true");
 }
 
 function getUniqueSystemsFromWeek() {
@@ -542,27 +674,38 @@ function getUniqueSystemsFromWeek() {
 }
 
 function populateSystemFilterOptions() {
+  if (!filterSystemSelect) return;
+
   const options = ['<option value="ALL">Todos os sistemas</option>'];
   getUniqueSystemsFromWeek().forEach((system) => {
-    const selected = system === activeSystemFilter ? ' selected' : '';
+    const selected = system === activeSystemFilter ? " selected" : "";
     options.push(`<option value="${system}"${selected}>${system}</option>`);
   });
   filterSystemSelect.innerHTML = options.join("");
 }
 
 function openFilterModal() {
+  if (!filterModal) return;
+
   populateSystemFilterOptions();
   filterModal.setAttribute("aria-hidden", "false");
   animateModalCard(filterModal);
-  filterSystemSelect.focus();
+
+  if (filterSystemSelect) {
+    filterSystemSelect.focus();
+  }
+
   emitDashboardEvent("dashboard:popup-opened", "Filtro de sistema aberto");
 }
 
 function closeFilterModal() {
+  if (!filterModal) return;
   filterModal.setAttribute("aria-hidden", "true");
 }
 
 function openDayRecordsModal(dayName, dateLabel, entries) {
+  if (!dayRecordsTitle || !dayRecordsList || !dayRecordsModal) return;
+
   dayRecordsTitle.textContent = `${dayName} • ${dateLabel}`;
   dayRecordsList.innerHTML = "";
 
@@ -582,6 +725,8 @@ function openDayRecordsModal(dayName, dateLabel, entries) {
 }
 
 function openEntryDetailsModal(dayName, dateLabel, entry) {
+  if (!dayRecordsTitle || !dayRecordsList || !dayRecordsModal) return;
+
   dayRecordsTitle.textContent = `${dayName} • ${dateLabel}`;
   dayRecordsList.innerHTML = "";
 
@@ -605,15 +750,15 @@ function openEntryDetailsModal(dayName, dateLabel, entry) {
     </div>
   `;
 
-  item.querySelector(".detail-add-doc-btn").addEventListener("click", () => {
+  item.querySelector(".detail-add-doc-btn")?.addEventListener("click", () => {
     openDocumentsModal(entry);
   });
 
-  item.querySelector(".detail-edit-btn").addEventListener("click", () => {
+  item.querySelector(".detail-edit-btn")?.addEventListener("click", () => {
     openEditEntryModal(entry);
   });
 
-  item.querySelector(".detail-delete-btn").addEventListener("click", async () => {
+  item.querySelector(".detail-delete-btn")?.addEventListener("click", async () => {
     const confirmed = window.confirm("Deseja realmente excluir esta demanda?");
     if (!confirmed) return;
 
@@ -649,6 +794,7 @@ function openEntryDetailsModal(dayName, dateLabel, entry) {
 }
 
 function closeDayRecordsModal() {
+  if (!dayRecordsModal) return;
   dayRecordsModal.setAttribute("aria-hidden", "true");
 }
 
@@ -667,18 +813,9 @@ function animateCalendarChange() {
   }, 520);
 }
 
-function animateCalendarChange() {
-  if (!weekCard || !weekIcon) return;
-
-  weekCard.classList.remove("is-changing");
-  weekIcon.classList.remove("is-changing");
-  void weekCard.offsetWidth;
-  weekCard.classList.add("is-changing");
-  weekIcon.classList.add("is-changing");
-}
-
-
 function renderWeek(baseMonday) {
+  if (!board || !weekRange || !dayTemplate || !entryTemplate) return;
+
   board.innerHTML = "";
   const friday = addDays(baseMonday, 4);
   weekRange.textContent = `${formatDate(baseMonday)} - ${formatDate(friday)}`;
@@ -689,105 +826,164 @@ function renderWeek(baseMonday) {
   weekData.forEach((day, index) => {
     const dayNode = dayTemplate.content.firstElementChild.cloneNode(true);
     const dateLabel = formatDayHeader(addDays(baseMonday, index));
+
     dayNode.querySelector("h3").textContent = day.day;
     dayNode.querySelector("span").textContent = dateLabel;
 
     const entriesRoot = dayNode.querySelector(".entries");
     const expandDayBtn = dayNode.querySelector(".expand-day-btn");
 
-    const visibleEntries = activeSystemFilter === "ALL"
-      ? day.entries
-      : day.entries.filter((entry) => entry.system === activeSystemFilter);
-       visibleEntries.forEach((entry, entryIndex) => {
-      const entryNode = entryTemplate.content.firstElementChild.cloneNode(true);
-      entryNode.classList.add(entry.level);
-      entryNode.classList.add("is-entering");
-      entryNode.style.animationDelay = `${Math.min(entryIndex * 70, 280)}ms`;
-      entryNode.querySelector("h4").textContent = entry.title;
-      entryNode.querySelector(".system-pill").textContent = entry.system || "Sem sistema";
-      entryNode.querySelector("small").textContent = `${entry.documents.length} erro${entry.documents.length > 1 ? "s" : ""} com documento`;
+    const visibleEntries =
+      activeSystemFilter === "ALL"
+        ? day.entries
+        : day.entries.filter((entry) => entry.system === activeSystemFilter);
 
+    visibleEntries
+      .slice(0, MAX_VISIBLE_ENTRIES_PER_DAY)
+      .forEach((entry, entryIndex) => {
+        const entryNode = entryTemplate.content.firstElementChild.cloneNode(true);
 
-      const openDetails = () => {
-        openEntryDetailsModal(day.day, dateLabel, entry);
-      };
+        entryNode.classList.add(entry.level);
+        entryNode.classList.add("is-entering");
+        entryNode.style.animationDelay = `${Math.min(entryIndex * 70, 280)}ms`;
 
-      entryNode.addEventListener("click", openDetails);
-      entryNode.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          openDetails();
-        }
+        entryNode.querySelector("h4").textContent = entry.title;
+        entryNode.querySelector(".system-pill").textContent = entry.system || "Sem sistema";
+        entryNode.querySelector("small").textContent =
+          `${entry.documents.length} erro${entry.documents.length > 1 ? "s" : ""} com documento`;
+
+        const openDetails = () => {
+          openEntryDetailsModal(day.day, dateLabel, entry);
+        };
+
+        entryNode.addEventListener("click", openDetails);
+        entryNode.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openDetails();
+          }
+        });
+
+        entriesRoot.appendChild(entryNode);
       });
 
-      entriesRoot.appendChild(entryNode);
-    });
-
-    expandDayBtn.hidden = true;
+    if (expandDayBtn) {
+      expandDayBtn.hidden = true;
+    }
 
     board.appendChild(dayNode);
   });
+
+  if (analyticsModal?.getAttribute("aria-hidden") === "false") {
+    renderAnalyticsModal();
+  }
 }
 
-
 function animateModalCard(modalElement) {
-  const card = modalElement.querySelector('.modal-card');
+  if (!modalElement) return;
+
+  const card = modalElement.querySelector(".modal-card");
   if (!card) return;
-  card.classList.remove('is-animating');
+
+  card.classList.remove("is-animating");
   void card.offsetWidth;
-  card.classList.add('is-animating');
+  card.classList.add("is-animating");
 }
 
 function openModal() {
+  if (!form || !modal) return;
+
   form.reset();
   const todayWeekday = getTodayWeekday();
-  daySelect.value = todayWeekday;
-  dayDisplay.value = todayWeekday;
+
+  if (daySelect) daySelect.value = todayWeekday;
+  if (dayDisplay) dayDisplay.value = todayWeekday;
+
   modal.setAttribute("aria-hidden", "false");
   animateModalCard(modal);
-  incidentInput.focus();
+
+  if (incidentInput) {
+    incidentInput.focus();
+  }
+
   emitDashboardEvent("dashboard:popup-opened", "Novo registro");
 }
 
 function closeModal() {
+  if (!modal) return;
   modal.setAttribute("aria-hidden", "true");
 }
 
 function openDocumentsModal(entry) {
+  if (!documentsModal || !documentsForm) return;
+
   selectedEntryForDocuments = entry;
   documentsForm.reset();
   documentsModal.setAttribute("aria-hidden", "false");
   animateModalCard(documentsModal);
-  documentsInput.focus();
+
+  if (documentsInput) {
+    documentsInput.focus();
+  }
+
   emitDashboardEvent("dashboard:popup-opened", "Adicionar documento");
 }
 
 function closeDocumentsModal() {
+  if (!documentsModal) return;
   documentsModal.setAttribute("aria-hidden", "true");
   selectedEntryForDocuments = null;
 }
 
 function openEditEntryModal(entry) {
+  if (!editEntryModal) return;
+
   selectedEntryForEdit = entry;
-  editIncidentInput.value = entry.title || "";
-  editSystemInput.value = entry.system || "";
-  editObservationInput.value = entry.observation || "";
+
+  if (editIncidentInput) editIncidentInput.value = entry.title || "";
+  if (editSystemInput) editSystemInput.value = entry.system || "";
+  if (editObservationInput) editObservationInput.value = entry.observation || "";
+
   editEntryModal.setAttribute("aria-hidden", "false");
   animateModalCard(editEntryModal);
   emitDashboardEvent("dashboard:popup-opened", "Editar demanda");
 }
 
 function closeEditEntryModal() {
+  if (!editEntryModal) return;
   editEntryModal.setAttribute("aria-hidden", "true");
   selectedEntryForEdit = null;
 }
 
-createRecordBtn.addEventListener("click", openModal);
-cancelRecordBtn.addEventListener("click", closeModal);
-closeDayRecordsBtn.addEventListener("click", closeDayRecordsModal);
-notificationsBtn.addEventListener("click", openNotificationsModal);
-closeNotificationsBtn.addEventListener("click", closeNotificationsModal);
-filterBtn.addEventListener("click", openFilterModal);
+createRecordBtn?.addEventListener("click", openModal);
+cancelRecordBtn?.addEventListener("click", closeModal);
+closeDayRecordsBtn?.addEventListener("click", closeDayRecordsModal);
+notificationsBtn?.addEventListener("click", openNotificationsModal);
+closeNotificationsBtn?.addEventListener("click", closeNotificationsModal);
+filterBtn?.addEventListener("click", openFilterModal);
+
+if (summaryBtn) {
+  summaryBtn.addEventListener("click", openAnalyticsModal);
+}
+
+if (closeAnalyticsBtn) {
+  closeAnalyticsBtn.addEventListener("click", closeAnalyticsModal);
+}
+
+if (analyticsPrevWeekBtn) {
+  analyticsPrevWeekBtn.addEventListener("click", () => {
+    analyticsMonday = addDays(analyticsMonday || selectedMonday, -7);
+    renderAnalyticsModal();
+  });
+}
+
+if (analyticsNextWeekBtn) {
+  analyticsNextWeekBtn.addEventListener("click", () => {
+    analyticsMonday = addDays(analyticsMonday || selectedMonday, 7);
+    renderAnalyticsModal();
+  });
+}
+
 if (exportBtn) {
   exportBtn.addEventListener("click", async () => {
     try {
@@ -798,61 +994,67 @@ if (exportBtn) {
   });
 }
 
-modal.addEventListener("click", (event) => {
+modal?.addEventListener("click", (event) => {
   if (event.target === modal) {
     closeModal();
   }
 });
 
-dayRecordsModal.addEventListener("click", (event) => {
+dayRecordsModal?.addEventListener("click", (event) => {
   if (event.target === dayRecordsModal) {
     closeDayRecordsModal();
   }
 });
 
-notificationsModal.addEventListener("click", (event) => {
+notificationsModal?.addEventListener("click", (event) => {
   if (event.target === notificationsModal) {
     closeNotificationsModal();
   }
 });
 
-filterModal.addEventListener("click", (event) => {
+filterModal?.addEventListener("click", (event) => {
   if (event.target === filterModal) {
     closeFilterModal();
   }
 });
 
-cancelFilterBtn.addEventListener("click", closeFilterModal);
+analyticsModal?.addEventListener("click", (event) => {
+  if (event.target === analyticsModal) {
+    closeAnalyticsModal();
+  }
+});
 
-clearFilterBtn.addEventListener("click", () => {
+cancelFilterBtn?.addEventListener("click", closeFilterModal);
+
+clearFilterBtn?.addEventListener("click", () => {
   activeSystemFilter = "ALL";
   closeFilterModal();
   renderWeek(selectedMonday);
 });
 
-filterForm.addEventListener("submit", (event) => {
+filterForm?.addEventListener("submit", (event) => {
   event.preventDefault();
-  activeSystemFilter = filterSystemSelect.value || "ALL";
+  activeSystemFilter = filterSystemSelect?.value || "ALL";
   closeFilterModal();
   renderWeek(selectedMonday);
 });
 
-documentsModal.addEventListener("click", (event) => {
+documentsModal?.addEventListener("click", (event) => {
   if (event.target === documentsModal) {
     closeDocumentsModal();
   }
 });
 
-cancelDocumentsBtn.addEventListener("click", closeDocumentsModal);
-cancelEditEntryBtn.addEventListener("click", closeEditEntryModal);
+cancelDocumentsBtn?.addEventListener("click", closeDocumentsModal);
+cancelEditEntryBtn?.addEventListener("click", closeEditEntryModal);
 
-editEntryModal.addEventListener("click", (event) => {
+editEntryModal?.addEventListener("click", (event) => {
   if (event.target === editEntryModal) {
     closeEditEntryModal();
   }
 });
 
-editEntryForm.addEventListener("submit", async (event) => {
+editEntryForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   if (!selectedEntryForEdit) {
@@ -860,9 +1062,9 @@ editEntryForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  const incident = editIncidentInput.value.trim();
-  const system = editSystemInput.value.trim();
-  const observation = editObservationInput.value.trim();
+  const incident = editIncidentInput?.value.trim() || "";
+  const system = editSystemInput?.value.trim() || "";
+  const observation = editObservationInput?.value.trim() || "";
 
   if (!incident || !system) return;
 
@@ -893,7 +1095,7 @@ editEntryForm.addEventListener("submit", async (event) => {
   emitDashboardEvent("dashboard:action-success", "Demanda editada com sucesso");
 });
 
-documentsForm.addEventListener("submit", (event) => {
+documentsForm?.addEventListener("submit", (event) => {
   event.preventDefault();
 
   if (!selectedEntryForDocuments) {
@@ -901,9 +1103,9 @@ documentsForm.addEventListener("submit", (event) => {
     return;
   }
 
-  const documents = parseDocumentsInput(documentsInput.value.trim());
+  const documents = parseDocumentsInput(documentsInput?.value.trim() || "");
   if (documents.length === 0) {
-    documentsInput.focus();
+    documentsInput?.focus();
     return;
   }
 
@@ -913,19 +1115,20 @@ documentsForm.addEventListener("submit", (event) => {
   emitDashboardEvent("dashboard:action-success", "Documento(s) adicionado(s)");
 });
 
-form.addEventListener("submit", async (event) => {
+form?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const incident = incidentInput.value.trim();
-  const documentValue = documentInput.value.trim();
-  const system = systemInput.value.trim();
-  const observationValue = observationInput.value.trim();
-  const day = daySelect.value;
+  const incident = incidentInput?.value.trim() || "";
+  const documentValue = documentInput?.value.trim() || "";
+  const system = systemInput?.value.trim() || "";
+  const observationValue = observationInput?.value.trim() || "";
+  const day = daySelect?.value || "";
 
   if (!incident || !documentValue || !system) return;
 
   const weekData = getActiveWeekData();
   const dayData = weekData.find((item) => item.day === day);
+  if (!dayData) return;
 
   const weekStart = formatDate(selectedMonday);
   const weekEnd = formatDate(addDays(selectedMonday, 4));
@@ -971,18 +1174,17 @@ form.addEventListener("submit", async (event) => {
   emitDashboardEvent("dashboard:action-success", "Registro salvo com animação");
 });
 
-prevWeekBtn.addEventListener("click", () => {
+prevWeekBtn?.addEventListener("click", () => {
   selectedMonday = addDays(selectedMonday, -7);
   renderWeek(selectedMonday);
   animateCalendarChange();
 });
 
-nextWeekBtn.addEventListener("click", () => {
+nextWeekBtn?.addEventListener("click", () => {
   selectedMonday = addDays(selectedMonday, 7);
   renderWeek(selectedMonday);
   animateCalendarChange();
 });
-
 
 async function initializeApp() {
   showWelcomePopup();
