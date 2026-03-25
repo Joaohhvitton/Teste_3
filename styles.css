@@ -662,4 +662,6 @@ body {
   .brand-wrap, .icon-actions { border-right: none; padding-right: 0; }
   .controls-row { align-items: flex-start; }
   .board { grid-template-columns: 1fr; }
+  .analytics-grid { grid-template-columns: 1fr; }
+  .chart-row { grid-template-columns: 90px 1fr auto; }
 }
