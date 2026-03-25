@@ -30,6 +30,11 @@ const filterSystemSelect = document.getElementById("filter-system-select");
 const clearFilterBtn = document.getElementById("clear-filter");
 const cancelFilterBtn = document.getElementById("cancel-filter");
 const notifications = [];
+const ALERT_WINDOWS = [
+  { id: "morning", label: "12:00", startHour: 0, endHour: 12 },
+  { id: "afternoon", label: "16:00", startHour: 12, endHour: 16 },
+];
+
 
 const welcomePopup = document.getElementById("welcome-popup");
 const welcomeProgressBar = document.getElementById("welcome-progress-bar");
@@ -89,19 +94,6 @@ const parseDocumentsInput = (value) =>
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-
-const formatNotificationTime = (value) => {
-  if (typeof value !== "string" || !value.includes("T")) {
-    return "Sem horário";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "Sem horário";
-  }
-
-  return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-};
 
 const emitDashboardEvent = (name, message) => {
   window.dispatchEvent(new CustomEvent(name, { detail: { message } }));
@@ -481,26 +473,50 @@ function showWelcomePopup() {
 }
 
 function renderNotifications() {
-  notificationsCount.textContent = String(notifications.length);
+  const now = new Date();
+  const todaySummaries = ALERT_WINDOWS.map((windowConfig) => {
+    const count = notifications.filter((item) => {
+      const createdAt = new Date(item.createdAt);
+      if (Number.isNaN(createdAt.getTime())) return false;
+
+      const isToday =
+        createdAt.getFullYear() === now.getFullYear() &&
+        createdAt.getMonth() === now.getMonth() &&
+        createdAt.getDate() === now.getDate();
+
+      if (!isToday) return false;
+
+      const hour = createdAt.getHours();
+      return hour >= windowConfig.startHour && hour < windowConfig.endHour;
+    }).length;
+
+    return {
+      ...windowConfig,
+      count,
+    };
+  });
+
+  notificationsCount.textContent = String(todaySummaries.reduce((acc, item) => acc + item.count, 0));
   notificationsList.innerHTML = "";
 
-  if (notifications.length === 0) {
-    notificationsList.innerHTML = '<article class="day-record-item"><p>Nenhuma demanda cadastrada ainda.</p></article>';
+  if (todaySummaries.every((item) => item.count === 0)) {
+    notificationsList.innerHTML =
+      '<article class="day-record-item"><p>Nenhuma demanda criada hoje para os alertas de 12h e 16h.</p></article>';
     return;
   }
 
-  [...notifications].reverse().forEach((item) => {
+  todaySummaries.forEach((item) => {
     const node = document.createElement("article");
     node.className = "day-record-item";
     node.innerHTML = `
-      <h4>${item.incident}</h4>
-      <p>${item.day} • ${item.system}</p>
-      <small>${item.document}</small>
-      <small>Criado às ${formatNotificationTime(item.createdAt)}</small>
+      <h4>Alerta das ${item.label}</h4>
+      <p>Demandas criadas hoje: <strong>${item.count}</strong></p>
+      <small>Janela considerada: ${String(item.startHour).padStart(2, "0")}:00 até ${String(item.endHour).padStart(2, "0")}:00</small>
     `;
     notificationsList.appendChild(node);
   });
 }
+
 
 function openNotificationsModal() {
   renderNotifications();
