@@ -87,6 +87,13 @@ const APP_CONFIG = {
   exportFunctionName: window.APP_CONFIG?.exportFunctionName || "export-base-atendimentos",
 };
 
+const weekStore = new Map();
+let selectedMonday = getMonday(new Date());
+let analyticsMonday = null;
+let selectedEntryForDocuments = null;
+let selectedEntryForEdit = null;
+let activeSystemFilter = "ALL";
+
 const getRestTableName = () => APP_CONFIG.tableName.split(".").pop();
 
 const parseISODateAsLocal = (value) => {
@@ -96,11 +103,41 @@ const parseISODateAsLocal = (value) => {
   return new Date(year, month - 1, day);
 };
 
-const getDateForWeekday = (baseMonday, weekday) => {
+const formatDate = (date) =>
+  date.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+
+const formatDayHeader = (date) =>
+  date.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+
+function getMonday(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function addDays(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+const getWeekKey = (monday) => formatDate(monday);
+
+function getDateForWeekday(baseMonday, weekday) {
   const index = weekdayOrder.indexOf(weekday);
   if (index < 0) return new Date(baseMonday);
   return addDays(baseMonday, index);
-};
+}
 
 const parseDocumentsInput = (value) =>
   value
@@ -112,7 +149,7 @@ const emitDashboardEvent = (name, message) => {
   window.dispatchEvent(new CustomEvent(name, { detail: { message } }));
 };
 
-const getExportFilename = (contentDisposition) => {
+function getExportFilename(contentDisposition) {
   if (typeof contentDisposition !== "string") {
     return `base_atendimentos_${Date.now()}.xlsx`;
   }
@@ -123,14 +160,14 @@ const getExportFilename = (contentDisposition) => {
   }
 
   return decodeURIComponent(match[1].trim());
-};
+}
 
-const escapeCsvCell = (value) => {
+function escapeCsvCell(value) {
   const normalized = String(value ?? "").replace(/"/g, '""');
   return `"${normalized}"`;
-};
+}
 
-const buildRowsForLocalExport = () => {
+function buildRowsForLocalExport() {
   const rows = [];
 
   weekStore.forEach((weekData, weekKey) => {
@@ -150,9 +187,9 @@ const buildRowsForLocalExport = () => {
   });
 
   return rows;
-};
+}
 
-const downloadLocalCsvFallback = () => {
+function downloadLocalCsvFallback() {
   const headers = [
     "semana",
     "dia_semana",
@@ -180,7 +217,7 @@ const downloadLocalCsvFallback = () => {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-};
+}
 
 async function exportDatabaseFromEdgeFunction() {
   const endpoint = `${APP_CONFIG.supabaseUrl}/functions/v1/${APP_CONFIG.exportFunctionName}`;
@@ -223,9 +260,7 @@ async function exportDatabaseFromEdgeFunction() {
 
       downloadLocalCsvFallback();
       window.alert(
-        `Não foi possível baixar da Edge Function. Baixamos um CSV local do painel como fallback.
-
-Detalhes: ${primaryMessage} | ${secondaryMessage}`,
+        `Não foi possível baixar da Edge Function. Baixamos um CSV local do painel como fallback.\n\nDetalhes: ${primaryMessage} | ${secondaryMessage}`
       );
     }
   }
@@ -239,6 +274,7 @@ async function getNextPrimaryKey() {
   };
 
   const response = await fetch(endpoint, { headers });
+
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`Falha ao consultar último id_primary: ${response.status} ${body}`);
@@ -274,6 +310,7 @@ async function saveAttendanceToDatabase({
   };
 
   let nextId = null;
+
   try {
     nextId = await getNextPrimaryKey();
   } catch (error) {
@@ -307,10 +344,7 @@ async function saveAttendanceToDatabase({
     const body = await response.text();
     throw new Error(`Supabase ${response.status}: ${body}`);
   } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-
+    if (error instanceof Error) throw error;
     throw new Error("Falha ao salvar no Supabase.");
   }
 }
@@ -369,6 +403,7 @@ async function loadAttendancesFromDatabase() {
   };
 
   const response = await fetch(endpoint, { headers });
+
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`Falha ao carregar atendimentos: ${response.status} ${body}`);
@@ -416,30 +451,7 @@ async function loadAttendancesFromDatabase() {
   });
 }
 
-const formatDate = (date) =>
-  date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
-
-const formatDayHeader = (date) =>
-  date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-
-const getMonday = (date) => {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-
-const addDays = (date, days) => {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-};
-
-const getWeekKey = (monday) => formatDate(monday);
-
-const getTodayWeekday = () => {
+function getTodayWeekday() {
   const day = new Date().getDay();
   const map = {
     1: "SEGUNDA",
@@ -449,20 +461,14 @@ const getTodayWeekday = () => {
     5: "SEXTA",
   };
   return map[day] || "SEGUNDA";
-};
+}
 
-const buildEmptyWeek = () =>
-  weekdayOrder.map((day) => ({
+function buildEmptyWeek() {
+  return weekdayOrder.map((day) => ({
     day,
     entries: [],
   }));
-
-const weekStore = new Map();
-let selectedMonday = getMonday(new Date());
-let analyticsMonday = null;
-let selectedEntryForDocuments = null;
-let selectedEntryForEdit = null;
-let activeSystemFilter = "ALL";
+}
 
 function getWeekDataForMonday(monday) {
   const key = getWeekKey(monday);
@@ -506,6 +512,7 @@ function renderNotifications() {
   if (!notificationsCount || !notificationsList) return;
 
   const now = new Date();
+
   const todaySummaries = ALERT_WINDOWS.map((windowConfig) => {
     const count = notifications.filter((item) => {
       const createdAt = new Date(item.createdAt);
@@ -528,7 +535,10 @@ function renderNotifications() {
     };
   });
 
-  notificationsCount.textContent = String(todaySummaries.reduce((acc, item) => acc + item.count, 0));
+  notificationsCount.textContent = String(
+    todaySummaries.reduce((acc, item) => acc + item.count, 0)
+  );
+
   notificationsList.innerHTML = "";
 
   if (todaySummaries.every((item) => item.count === 0)) {
@@ -566,27 +576,164 @@ function getTopEntries(sourceMap, limit = 5) {
   return [...sourceMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
 }
 
-function renderHorizontalChart(container, data, emptyMessage) {
+function ensureChartTooltip(container) {
+  let tooltip = container.querySelector(".chart-tooltip");
+
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.className = "chart-tooltip";
+    tooltip.style.position = "absolute";
+    tooltip.style.pointerEvents = "none";
+    tooltip.style.zIndex = "10";
+    tooltip.style.padding = "0.4rem 0.6rem";
+    tooltip.style.background = "rgba(8, 10, 28, 0.95)";
+    tooltip.style.border = "1px solid rgba(255, 255, 255, 0.16)";
+    tooltip.style.borderRadius = "0.5rem";
+    tooltip.style.fontSize = "0.75rem";
+    tooltip.style.color = "#ffffff";
+    tooltip.style.opacity = "0";
+    tooltip.style.transform = "translateY(4px)";
+    tooltip.style.transition = "opacity 0.18s ease, transform 0.18s ease";
+    container.appendChild(tooltip);
+  }
+
+  return tooltip;
+}
+
+function showChartTooltip(container, event, label, value, prefix = "Quantidade") {
+  const tooltip = ensureChartTooltip(container);
+  tooltip.innerHTML = `<strong>${label}</strong><br/>${prefix}: ${value}`;
+  tooltip.style.opacity = "1";
+  tooltip.style.transform = "translateY(0)";
+
+  const rect = container.getBoundingClientRect();
+  const left = event.clientX - rect.left + 12;
+  const top = event.clientY - rect.top - 8;
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+function hideChartTooltip(container) {
+  const tooltip = container.querySelector(".chart-tooltip");
+  if (!tooltip) return;
+  tooltip.style.opacity = "0";
+  tooltip.style.transform = "translateY(4px)";
+}
+
+function renderBarChart(container, data, emptyMessage = "Sem dados.") {
   if (!container) return;
+
   container.innerHTML = "";
+  container.style.position = "relative";
 
   if (!data.length) {
     container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
     return;
   }
 
-  const maxValue = Math.max(...data.map((item) => item.value), 1);
+  const max = Math.max(...data.map((d) => d.value), 1);
 
   data.forEach((item) => {
     const row = document.createElement("div");
     row.className = "chart-row";
-    const widthPercent = (item.value / maxValue) * 100;
 
     row.innerHTML = `
       <span class="chart-row-label" title="${item.label}">${item.label}</span>
-      <span class="chart-bar-track"><span class="chart-bar-fill" style="width:${widthPercent}%;"></span></span>
+      <div class="chart-bar-track">
+        <div class="chart-bar-fill" style="width:${(item.value / max) * 100}%"></div>
+      </div>
       <span class="chart-row-value">${item.value}</span>
     `;
+
+    row.addEventListener("mousemove", (event) => {
+      showChartTooltip(container, event, item.label, item.value);
+    });
+
+    row.addEventListener("mouseleave", () => {
+      hideChartTooltip(container);
+    });
+
+    container.appendChild(row);
+  });
+}
+
+function renderLineChart(container, data, emptyMessage = "Sem dados.") {
+  if (!container) return;
+
+  container.innerHTML = "";
+  container.style.position = "relative";
+
+  if (!data.length) {
+    container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
+    return;
+  }
+
+  const max = Math.max(...data.map((d) => d.value), 1);
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "line-chart";
+
+  data.forEach((item) => {
+    const columnWrap = document.createElement("div");
+    columnWrap.className = "line-column-wrap";
+
+    const bar = document.createElement("div");
+    bar.className = "line-bar";
+    bar.style.height = `${(item.value / max) * 100}%`;
+
+    const label = document.createElement("span");
+    label.className = "line-label";
+    label.textContent = item.label;
+
+    const value = document.createElement("span");
+    value.className = "line-value";
+    value.textContent = item.value;
+
+    columnWrap.appendChild(value);
+    columnWrap.appendChild(bar);
+    columnWrap.appendChild(label);
+
+    columnWrap.addEventListener("mousemove", (event) => {
+      showChartTooltip(container, event, item.label, item.value, "Demandas");
+    });
+
+    columnWrap.addEventListener("mouseleave", () => {
+      hideChartTooltip(container);
+    });
+
+    wrapper.appendChild(columnWrap);
+  });
+
+  container.appendChild(wrapper);
+}
+
+function renderRanking(container, data, emptyMessage = "Sem dados.") {
+  if (!container) return;
+
+  container.innerHTML = "";
+  container.style.position = "relative";
+
+  if (!data.length) {
+    container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
+    return;
+  }
+
+  data.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "rank-item";
+
+    row.innerHTML = `
+      <span title="${item.label}">${index + 1}. ${item.label}</span>
+      <strong>${item.value}</strong>
+    `;
+
+    row.addEventListener("mousemove", (event) => {
+      showChartTooltip(container, event, item.label, item.value);
+    });
+
+    row.addEventListener("mouseleave", () => {
+      hideChartTooltip(container);
+    });
 
     container.appendChild(row);
   });
@@ -595,14 +742,22 @@ function renderHorizontalChart(container, data, emptyMessage) {
 function buildWeeklyAnalytics(weekData) {
   const demandsByDay = weekdayOrder.map((dayName) => {
     const dayData = weekData.find((item) => item.day === dayName);
-    const demandsCount = dayData?.entries.length || 0;
-    return { label: dayName, value: demandsCount };
+    return {
+      label: dayName,
+      value: dayData?.entries.length || 0,
+    };
   });
 
   const problemsByDay = weekdayOrder.map((dayName) => {
     const dayData = weekData.find((item) => item.day === dayName);
-    const problemsCount = (dayData?.entries || []).reduce((acc, entry) => acc + entry.documents.length, 0);
-    return { label: dayName, value: problemsCount };
+    const problemsCount = (dayData?.entries || []).reduce(
+      (acc, entry) => acc + entry.documents.length,
+      0
+    );
+    return {
+      label: dayName,
+      value: problemsCount,
+    };
   });
 
   const incidentMap = new Map();
@@ -640,10 +795,10 @@ function renderAnalyticsModal() {
   const weekData = getWeekDataForMonday(analyticsMonday);
   const analytics = buildWeeklyAnalytics(weekData);
 
-  renderHorizontalChart(chartDemandPerDay, analytics.demandsByDay, "Sem demandas nesta semana.");
-  renderHorizontalChart(chartTopCases, analytics.topCases, "Sem casos para analisar nesta semana.");
-  renderHorizontalChart(chartTopSystems, analytics.topSystems, "Sem sistemas com ocorrências nesta semana.");
-  renderHorizontalChart(chartProblemsByDay, analytics.topDaysByProblems, "Sem problemas registrados nesta semana.");
+  renderLineChart(chartDemandPerDay, analytics.demandsByDay, "Sem demandas nesta semana.");
+  renderBarChart(chartProblemsByDay, analytics.topDaysByProblems, "Sem problemas registrados nesta semana.");
+  renderBarChart(chartTopSystems, analytics.topSystems, "Sem sistemas com ocorrências nesta semana.");
+  renderRanking(chartTopCases, analytics.topCases, "Sem casos para analisar nesta semana.");
 }
 
 function openAnalyticsModal() {
@@ -663,13 +818,13 @@ function closeAnalyticsModal() {
 
 function getUniqueSystemsFromWeek() {
   const systems = new Set();
+
   getActiveWeekData().forEach((dayData) => {
     dayData.entries.forEach((entry) => {
-      if (entry.system) {
-        systems.add(entry.system);
-      }
+      if (entry.system) systems.add(entry.system);
     });
   });
+
   return [...systems].sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
 
@@ -677,10 +832,12 @@ function populateSystemFilterOptions() {
   if (!filterSystemSelect) return;
 
   const options = ['<option value="ALL">Todos os sistemas</option>'];
+
   getUniqueSystemsFromWeek().forEach((system) => {
     const selected = system === activeSystemFilter ? " selected" : "";
     options.push(`<option value="${system}"${selected}>${system}</option>`);
   });
+
   filterSystemSelect.innerHTML = options.join("");
 }
 
@@ -733,9 +890,7 @@ function openEntryDetailsModal(dayName, dateLabel, entry) {
   const item = document.createElement("article");
   item.className = "day-record-item";
 
-  const documentsMarkup = entry.documents
-    .map((document) => `<li>${document}</li>`)
-    .join("");
+  const documentsMarkup = entry.documents.map((document) => `<li>${document}</li>`).join("");
 
   item.innerHTML = `
     <h4>Erro: ${entry.title}</h4>
@@ -838,34 +993,32 @@ function renderWeek(baseMonday) {
         ? day.entries
         : day.entries.filter((entry) => entry.system === activeSystemFilter);
 
-    visibleEntries
-      .slice(0, MAX_VISIBLE_ENTRIES_PER_DAY)
-      .forEach((entry, entryIndex) => {
-        const entryNode = entryTemplate.content.firstElementChild.cloneNode(true);
+    visibleEntries.slice(0, MAX_VISIBLE_ENTRIES_PER_DAY).forEach((entry, entryIndex) => {
+      const entryNode = entryTemplate.content.firstElementChild.cloneNode(true);
 
-        entryNode.classList.add(entry.level);
-        entryNode.classList.add("is-entering");
-        entryNode.style.animationDelay = `${Math.min(entryIndex * 70, 280)}ms`;
+      entryNode.classList.add(entry.level);
+      entryNode.classList.add("is-entering");
+      entryNode.style.animationDelay = `${Math.min(entryIndex * 70, 280)}ms`;
 
-        entryNode.querySelector("h4").textContent = entry.title;
-        entryNode.querySelector(".system-pill").textContent = entry.system || "Sem sistema";
-        entryNode.querySelector("small").textContent =
-          `${entry.documents.length} erro${entry.documents.length > 1 ? "s" : ""} com documento`;
+      entryNode.querySelector("h4").textContent = entry.title;
+      entryNode.querySelector(".system-pill").textContent = entry.system || "Sem sistema";
+      entryNode.querySelector("small").textContent =
+        `${entry.documents.length} erro${entry.documents.length > 1 ? "s" : ""} com documento`;
 
-        const openDetails = () => {
-          openEntryDetailsModal(day.day, dateLabel, entry);
-        };
+      const openDetails = () => {
+        openEntryDetailsModal(day.day, dateLabel, entry);
+      };
 
-        entryNode.addEventListener("click", openDetails);
-        entryNode.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            openDetails();
-          }
-        });
-
-        entriesRoot.appendChild(entryNode);
+      entryNode.addEventListener("click", openDetails);
+      entryNode.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openDetails();
+        }
       });
+
+      entriesRoot.appendChild(entryNode);
+    });
 
     if (expandDayBtn) {
       expandDayBtn.hidden = true;
@@ -962,66 +1115,53 @@ notificationsBtn?.addEventListener("click", openNotificationsModal);
 closeNotificationsBtn?.addEventListener("click", closeNotificationsModal);
 filterBtn?.addEventListener("click", openFilterModal);
 
-if (summaryBtn) {
-  summaryBtn.addEventListener("click", openAnalyticsModal);
-}
+summaryBtn?.addEventListener("click", openAnalyticsModal);
+closeAnalyticsBtn?.addEventListener("click", closeAnalyticsModal);
 
-if (closeAnalyticsBtn) {
-  closeAnalyticsBtn.addEventListener("click", closeAnalyticsModal);
-}
+analyticsPrevWeekBtn?.addEventListener("click", () => {
+  analyticsMonday = addDays(analyticsMonday || selectedMonday, -7);
+  renderAnalyticsModal();
+});
 
-if (analyticsPrevWeekBtn) {
-  analyticsPrevWeekBtn.addEventListener("click", () => {
-    analyticsMonday = addDays(analyticsMonday || selectedMonday, -7);
-    renderAnalyticsModal();
-  });
-}
+analyticsNextWeekBtn?.addEventListener("click", () => {
+  analyticsMonday = addDays(analyticsMonday || selectedMonday, 7);
+  renderAnalyticsModal();
+});
 
-if (analyticsNextWeekBtn) {
-  analyticsNextWeekBtn.addEventListener("click", () => {
-    analyticsMonday = addDays(analyticsMonday || selectedMonday, 7);
-    renderAnalyticsModal();
-  });
-}
-
-if (exportBtn) {
-  exportBtn.addEventListener("click", async () => {
-    try {
-      await exportDatabaseFromEdgeFunction();
-    } catch (error) {
-      window.alert(`Não foi possível exportar a base: ${error.message}`);
-    }
-  });
-}
+exportBtn?.addEventListener("click", async () => {
+  try {
+    await exportDatabaseFromEdgeFunction();
+  } catch (error) {
+    window.alert(`Não foi possível exportar a base: ${error.message}`);
+  }
+});
 
 modal?.addEventListener("click", (event) => {
-  if (event.target === modal) {
-    closeModal();
-  }
+  if (event.target === modal) closeModal();
 });
 
 dayRecordsModal?.addEventListener("click", (event) => {
-  if (event.target === dayRecordsModal) {
-    closeDayRecordsModal();
-  }
+  if (event.target === dayRecordsModal) closeDayRecordsModal();
 });
 
 notificationsModal?.addEventListener("click", (event) => {
-  if (event.target === notificationsModal) {
-    closeNotificationsModal();
-  }
+  if (event.target === notificationsModal) closeNotificationsModal();
 });
 
 filterModal?.addEventListener("click", (event) => {
-  if (event.target === filterModal) {
-    closeFilterModal();
-  }
+  if (event.target === filterModal) closeFilterModal();
 });
 
 analyticsModal?.addEventListener("click", (event) => {
-  if (event.target === analyticsModal) {
-    closeAnalyticsModal();
-  }
+  if (event.target === analyticsModal) closeAnalyticsModal();
+});
+
+documentsModal?.addEventListener("click", (event) => {
+  if (event.target === documentsModal) closeDocumentsModal();
+});
+
+editEntryModal?.addEventListener("click", (event) => {
+  if (event.target === editEntryModal) closeEditEntryModal();
 });
 
 cancelFilterBtn?.addEventListener("click", closeFilterModal);
@@ -1039,20 +1179,8 @@ filterForm?.addEventListener("submit", (event) => {
   renderWeek(selectedMonday);
 });
 
-documentsModal?.addEventListener("click", (event) => {
-  if (event.target === documentsModal) {
-    closeDocumentsModal();
-  }
-});
-
 cancelDocumentsBtn?.addEventListener("click", closeDocumentsModal);
 cancelEditEntryBtn?.addEventListener("click", closeEditEntryModal);
-
-editEntryModal?.addEventListener("click", (event) => {
-  if (event.target === editEntryModal) {
-    closeEditEntryModal();
-  }
-});
 
 editEntryForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1135,6 +1263,7 @@ form?.addEventListener("submit", async (event) => {
   const dateValue = getDateForWeekday(selectedMonday, day).toISOString().split("T")[0];
 
   let persistedId = null;
+
   try {
     persistedId = await saveAttendanceToDatabase({
       incident,
