@@ -12,7 +12,7 @@
       rel="stylesheet"
     />
 
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="dashboard">
@@ -120,6 +120,7 @@
         <label>Incidente <input id="incident-input" required /></label>
         <label>Documento <input id="document-input" required /></label>
         <label>Sistema <input id="system-input" required /></label>
+
         <label>
           Observação
           <textarea id="observation-input" rows="3" placeholder="Detalhes adicionais do atendimento"></textarea>
@@ -172,26 +173,57 @@
           </div>
         </header>
 
-        <div class="analytics-grid">
-          <article class="analytics-panel">
-            <h4>Demandas por dia</h4>
-            <div id="chart-demand-per-day" class="chart-container"></div>
-          </article>
+        <div class="analytics-screen">
+          <section class="analytics-kpis">
+            <article class="kpi-card">
+              <small>Total atendimentos</small>
+              <strong id="kpi-total-atendimentos">0</strong>
+            </article>
 
-          <article class="analytics-panel">
-            <h4>Top casos</h4>
-            <div id="chart-top-cases" class="chart-container"></div>
-          </article>
+            <article class="kpi-card">
+              <small>Média / dia</small>
+              <strong id="kpi-media-dia">0</strong>
+            </article>
 
-          <article class="analytics-panel">
-            <h4>Top sistemas</h4>
-            <div id="chart-top-systems" class="chart-container"></div>
-          </article>
+            <article class="kpi-card">
+              <small>Sistema mais crítico</small>
+              <strong id="kpi-sistema-critico">-</strong>
+            </article>
 
-          <article class="analytics-panel">
-            <h4>Problemas por dia</h4>
-            <div id="chart-problems-by-day" class="chart-container"></div>
-          </article>
+            <article class="kpi-card">
+              <small>Comparado à semana anterior</small>
+              <strong id="kpi-variacao-semanal">0%</strong>
+            </article>
+          </section>
+
+          <section class="analytics-grid-main">
+            <article class="analytics-panel">
+              <h4>Demanda por dia</h4>
+              <div id="chart-demand-per-day" class="chart-area"></div>
+            </article>
+
+            <article class="analytics-panel">
+              <h4>Top casos</h4>
+              <div id="chart-top-cases" class="chart-area"></div>
+            </article>
+          </section>
+
+          <section class="analytics-grid-bottom">
+            <article class="analytics-panel">
+              <h4>Demanda por dia (ranking)</h4>
+              <div id="chart-demand-ranking" class="chart-area"></div>
+            </article>
+
+            <article class="analytics-panel">
+              <h4>Top sistemas</h4>
+              <div id="chart-top-systems" class="chart-area"></div>
+            </article>
+
+            <article class="analytics-panel">
+              <h4>Problemas por dia</h4>
+              <div id="chart-problems-by-day" class="chart-area"></div>
+            </article>
+          </section>
         </div>
 
         <div class="modal-actions">
@@ -222,6 +254,7 @@
         <h3>Editar demanda</h3>
         <label>Incidente <input id="edit-incident-input" required /></label>
         <label>Sistema <input id="edit-system-input" required /></label>
+
         <label>
           Observação
           <textarea id="edit-observation-input" rows="3" placeholder="Detalhes da demanda"></textarea>
