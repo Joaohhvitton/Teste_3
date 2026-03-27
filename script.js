@@ -42,6 +42,12 @@ const chartDemandPerDay = document.getElementById("chart-demand-per-day");
 const chartTopCases = document.getElementById("chart-top-cases");
 const chartTopSystems = document.getElementById("chart-top-systems");
 const chartProblemsByDay = document.getElementById("chart-problems-by-day");
+const chartDemandRanking = document.getElementById("chart-demand-ranking");
+
+const kpiTotalAtendimentos = document.getElementById("kpi-total-atendimentos");
+const kpiMediaDia = document.getElementById("kpi-media-dia");
+const kpiSistemaCritico = document.getElementById("kpi-sistema-critico");
+const kpiVariacaoSemanal = document.getElementById("kpi-variacao-semanal");
 
 const notifications = [];
 const ALERT_WINDOWS = [
@@ -96,25 +102,29 @@ let activeSystemFilter = "ALL";
 
 const getRestTableName = () => APP_CONFIG.tableName.split(".").pop();
 
-const parseISODateAsLocal = (value) => {
+const DONUT_COLORS = ["#6c7bff", "#ff4f86", "#38d39a", "#ffbf36", "#58c5ff", "#9a7cff"];
+
+function parseISODateAsLocal(value) {
   if (typeof value !== "string") return null;
   const [year, month, day] = value.split("-").map(Number);
   if (!year || !month || !day) return null;
   return new Date(year, month - 1, day);
-};
+}
 
-const formatDate = (date) =>
-  date.toLocaleDateString("pt-BR", {
+function formatDate(date) {
+  return date.toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   });
+}
 
-const formatDayHeader = (date) =>
-  date.toLocaleDateString("pt-BR", {
+function formatDayHeader(date) {
+  return date.toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
   });
+}
 
 function getMonday(date) {
   const d = new Date(date);
@@ -131,7 +141,9 @@ function addDays(date, days) {
   return d;
 }
 
-const getWeekKey = (monday) => formatDate(monday);
+function getWeekKey(monday) {
+  return formatDate(monday);
+}
 
 function getDateForWeekday(baseMonday, weekday) {
   const index = weekdayOrder.indexOf(weekday);
@@ -139,15 +151,16 @@ function getDateForWeekday(baseMonday, weekday) {
   return addDays(baseMonday, index);
 }
 
-const parseDocumentsInput = (value) =>
-  value
+function parseDocumentsInput(value) {
+  return value
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
 
-const emitDashboardEvent = (name, message) => {
+function emitDashboardEvent(name, message) {
   window.dispatchEvent(new CustomEvent(name, { detail: { message } }));
-};
+}
 
 function getExportFilename(contentDisposition) {
   if (typeof contentDisposition !== "string") {
@@ -248,12 +261,10 @@ async function exportDatabaseFromEdgeFunction() {
   try {
     const response = await fetch(endpoint, { method: "GET", headers: authenticatedHeaders });
     await tryDownloadFromResponse(response);
-    return;
   } catch (primaryError) {
     try {
       const responseWithoutHeaders = await fetch(endpoint, { method: "GET" });
       await tryDownloadFromResponse(responseWithoutHeaders);
-      return;
     } catch (secondaryError) {
       const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
       const secondaryMessage = secondaryError instanceof Error ? secondaryError.message : String(secondaryError);
@@ -330,23 +341,18 @@ async function saveAttendanceToDatabase({
     ...basePayload,
   };
 
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-    });
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
 
-    if (response.ok) {
-      return payload.id_primary;
-    }
-
-    const body = await response.text();
-    throw new Error(`Supabase ${response.status}: ${body}`);
-  } catch (error) {
-    if (error instanceof Error) throw error;
-    throw new Error("Falha ao salvar no Supabase.");
+  if (response.ok) {
+    return payload.id_primary;
   }
+
+  const body = await response.text();
+  throw new Error(`Supabase ${response.status}: ${body}`);
 }
 
 async function updateAttendanceInDatabase({ idPrimary, incident, system, observationValue }) {
@@ -582,18 +588,6 @@ function ensureChartTooltip(container) {
   if (!tooltip) {
     tooltip = document.createElement("div");
     tooltip.className = "chart-tooltip";
-    tooltip.style.position = "absolute";
-    tooltip.style.pointerEvents = "none";
-    tooltip.style.zIndex = "10";
-    tooltip.style.padding = "0.4rem 0.6rem";
-    tooltip.style.background = "rgba(8, 10, 28, 0.95)";
-    tooltip.style.border = "1px solid rgba(255, 255, 255, 0.16)";
-    tooltip.style.borderRadius = "0.5rem";
-    tooltip.style.fontSize = "0.75rem";
-    tooltip.style.color = "#ffffff";
-    tooltip.style.opacity = "0";
-    tooltip.style.transform = "translateY(4px)";
-    tooltip.style.transition = "opacity 0.18s ease, transform 0.18s ease";
     container.appendChild(tooltip);
   }
 
@@ -603,14 +597,14 @@ function ensureChartTooltip(container) {
 function showChartTooltip(container, event, label, value, prefix = "Quantidade") {
   const tooltip = ensureChartTooltip(container);
   tooltip.innerHTML = `<strong>${label}</strong><br/>${prefix}: ${value}`;
-  tooltip.style.opacity = "1";
-  tooltip.style.transform = "translateY(0)";
 
   const rect = container.getBoundingClientRect();
   const left = event.clientX - rect.left + 12;
   const top = event.clientY - rect.top - 8;
   tooltip.style.left = `${left}px`;
   tooltip.style.top = `${top}px`;
+  tooltip.style.opacity = "1";
+  tooltip.style.transform = "translateY(0)";
 }
 
 function hideChartTooltip(container) {
@@ -620,10 +614,10 @@ function hideChartTooltip(container) {
   tooltip.style.transform = "translateY(4px)";
 }
 
-function renderBarChart(container, data, emptyMessage = "Sem dados.") {
+function renderVerticalBarChart(container, data, emptyMessage = "Sem dados.") {
   if (!container) return;
-
   container.innerHTML = "";
+  container.className = "chart-area vertical-bars";
   container.style.position = "relative";
 
   if (!data.length) {
@@ -631,86 +625,38 @@ function renderBarChart(container, data, emptyMessage = "Sem dados.") {
     return;
   }
 
-  const max = Math.max(...data.map((d) => d.value), 1);
+  const max = Math.max(...data.map((item) => item.value), 1);
 
   data.forEach((item) => {
-    const row = document.createElement("div");
-    row.className = "chart-row";
+    const node = document.createElement("div");
+    node.className = "vertical-bar-item";
 
-    row.innerHTML = `
-      <span class="chart-row-label" title="${item.label}">${item.label}</span>
-      <div class="chart-bar-track">
-        <div class="chart-bar-fill" style="width:${(item.value / max) * 100}%"></div>
+    const heightPercent = (item.value / max) * 100;
+
+    node.innerHTML = `
+      <span class="vertical-bar-value">${item.value}</span>
+      <div class="vertical-bar-track">
+        <div class="vertical-bar-fill" style="height:${Math.max(heightPercent, item.value > 0 ? 6 : 0)}%;"></div>
       </div>
-      <span class="chart-row-value">${item.value}</span>
+      <span class="vertical-bar-label">${item.label}</span>
     `;
 
-    row.addEventListener("mousemove", (event) => {
+    node.addEventListener("mousemove", (event) => {
       showChartTooltip(container, event, item.label, item.value);
     });
 
-    row.addEventListener("mouseleave", () => {
+    node.addEventListener("mouseleave", () => {
       hideChartTooltip(container);
     });
 
-    container.appendChild(row);
+    container.appendChild(node);
   });
 }
 
-function renderLineChart(container, data, emptyMessage = "Sem dados.") {
+function renderRankList(container, data, emptyMessage = "Sem dados.") {
   if (!container) return;
-
   container.innerHTML = "";
-  container.style.position = "relative";
-
-  if (!data.length) {
-    container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
-    return;
-  }
-
-  const max = Math.max(...data.map((d) => d.value), 1);
-
-  const wrapper = document.createElement("div");
-  wrapper.className = "line-chart";
-
-  data.forEach((item) => {
-    const columnWrap = document.createElement("div");
-    columnWrap.className = "line-column-wrap";
-
-    const bar = document.createElement("div");
-    bar.className = "line-bar";
-    bar.style.height = `${(item.value / max) * 100}%`;
-
-    const label = document.createElement("span");
-    label.className = "line-label";
-    label.textContent = item.label;
-
-    const value = document.createElement("span");
-    value.className = "line-value";
-    value.textContent = item.value;
-
-    columnWrap.appendChild(value);
-    columnWrap.appendChild(bar);
-    columnWrap.appendChild(label);
-
-    columnWrap.addEventListener("mousemove", (event) => {
-      showChartTooltip(container, event, item.label, item.value, "Demandas");
-    });
-
-    columnWrap.addEventListener("mouseleave", () => {
-      hideChartTooltip(container);
-    });
-
-    wrapper.appendChild(columnWrap);
-  });
-
-  container.appendChild(wrapper);
-}
-
-function renderRanking(container, data, emptyMessage = "Sem dados.") {
-  if (!container) return;
-
-  container.innerHTML = "";
+  container.className = "chart-area rank-list";
   container.style.position = "relative";
 
   if (!data.length) {
@@ -719,24 +665,174 @@ function renderRanking(container, data, emptyMessage = "Sem dados.") {
   }
 
   data.forEach((item, index) => {
-    const row = document.createElement("div");
-    row.className = "rank-item";
-
-    row.innerHTML = `
-      <span title="${item.label}">${index + 1}. ${item.label}</span>
-      <strong>${item.value}</strong>
+    const node = document.createElement("div");
+    node.className = "rank-row";
+    node.innerHTML = `
+      <span class="rank-row-index">${index + 1}</span>
+      <span class="rank-row-label" title="${item.label}">${item.label}</span>
+      <span class="rank-row-value">${item.value}</span>
     `;
 
-    row.addEventListener("mousemove", (event) => {
+    node.addEventListener("mousemove", (event) => {
       showChartTooltip(container, event, item.label, item.value);
     });
 
-    row.addEventListener("mouseleave", () => {
+    node.addEventListener("mouseleave", () => {
       hideChartTooltip(container);
     });
 
-    container.appendChild(row);
+    container.appendChild(node);
   });
+}
+
+function renderMiniHorizontal(container, data, emptyMessage = "Sem dados.") {
+  if (!container) return;
+  container.innerHTML = "";
+  container.className = "chart-area mini-horizontal";
+  container.style.position = "relative";
+
+  if (!data.length) {
+    container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
+    return;
+  }
+
+  const max = Math.max(...data.map((item) => item.value), 1);
+
+  data.forEach((item) => {
+    const node = document.createElement("div");
+    node.className = "mini-row";
+    const widthPercent = (item.value / max) * 100;
+
+    node.innerHTML = `
+      <span class="mini-row-label">${item.label}</span>
+      <span class="mini-row-track">
+        <span class="mini-row-fill" style="width:${widthPercent}%"></span>
+      </span>
+      <span class="mini-row-value">${item.value}</span>
+    `;
+
+    node.addEventListener("mousemove", (event) => {
+      showChartTooltip(container, event, item.label, item.value);
+    });
+
+    node.addEventListener("mouseleave", () => {
+      hideChartTooltip(container);
+    });
+
+    container.appendChild(node);
+  });
+}
+
+function polarToCartesian(cx, cy, r, angleInDegrees) {
+  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180;
+  return {
+    x: cx + r * Math.cos(angleInRadians),
+    y: cy + r * Math.sin(angleInRadians),
+  };
+}
+
+function describeArc(cx, cy, r, startAngle, endAngle) {
+  const start = polarToCartesian(cx, cy, r, endAngle);
+  const end = polarToCartesian(cx, cy, r, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+
+  return ["M", start.x, start.y, "A", r, r, 0, largeArcFlag, 0, end.x, end.y].join(" ");
+}
+
+function renderDonutChart(container, data, emptyMessage = "Sem dados.") {
+  if (!container) return;
+  container.innerHTML = "";
+  container.className = "chart-area";
+  container.style.position = "relative";
+
+  if (!data.length) {
+    container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
+    return;
+  }
+
+  const total = data.reduce((acc, item) => acc + item.value, 0);
+  if (total <= 0) {
+    container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
+    return;
+  }
+
+  const topData = data.slice(0, 6);
+  const wrap = document.createElement("div");
+  wrap.className = "donut-layout";
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 160 160");
+  svg.setAttribute("class", "donut-chart");
+
+  const base = document.createElementNS(svgNS, "circle");
+  base.setAttribute("cx", "80");
+  base.setAttribute("cy", "80");
+  base.setAttribute("r", "46");
+  base.setAttribute("fill", "none");
+  base.setAttribute("stroke", "rgba(255,255,255,0.08)");
+  base.setAttribute("stroke-width", "18");
+  svg.appendChild(base);
+
+  let currentAngle = 0;
+
+  topData.forEach((item, index) => {
+    const sweep = (item.value / total) * 360;
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute("d", describeArc(80, 80, 46, currentAngle, currentAngle + sweep));
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", DONUT_COLORS[index % DONUT_COLORS.length]);
+    path.setAttribute("stroke-width", "18");
+    path.setAttribute("stroke-linecap", "round");
+    svg.appendChild(path);
+    currentAngle += sweep;
+  });
+
+  const centerTextTop = document.createElementNS(svgNS, "text");
+  centerTextTop.setAttribute("x", "80");
+  centerTextTop.setAttribute("y", "74");
+  centerTextTop.setAttribute("text-anchor", "middle");
+  centerTextTop.setAttribute("fill", "#cfd5f0");
+  centerTextTop.setAttribute("font-size", "11");
+  centerTextTop.textContent = "Total";
+  svg.appendChild(centerTextTop);
+
+  const centerTextValue = document.createElementNS(svgNS, "text");
+  centerTextValue.setAttribute("x", "80");
+  centerTextValue.setAttribute("y", "92");
+  centerTextValue.setAttribute("text-anchor", "middle");
+  centerTextValue.setAttribute("fill", "#ffffff");
+  centerTextValue.setAttribute("font-size", "18");
+  centerTextValue.setAttribute("font-weight", "700");
+  centerTextValue.textContent = String(total);
+  svg.appendChild(centerTextValue);
+
+  const legend = document.createElement("div");
+  legend.className = "donut-legend";
+
+  topData.forEach((item, index) => {
+    const legendItem = document.createElement("div");
+    legendItem.className = "donut-legend-item";
+    legendItem.innerHTML = `
+      <span class="donut-legend-color" style="background:${DONUT_COLORS[index % DONUT_COLORS.length]}"></span>
+      <span class="donut-legend-label" title="${item.label}">${item.label}</span>
+      <span class="donut-legend-value">${item.value}</span>
+    `;
+
+    legendItem.addEventListener("mousemove", (event) => {
+      showChartTooltip(container, event, item.label, item.value);
+    });
+
+    legendItem.addEventListener("mouseleave", () => {
+      hideChartTooltip(container);
+    });
+
+    legend.appendChild(legendItem);
+  });
+
+  wrap.appendChild(svg);
+  wrap.appendChild(legend);
+  container.appendChild(wrap);
 }
 
 function buildWeeklyAnalytics(weekData) {
@@ -782,6 +878,10 @@ function buildWeeklyAnalytics(weekData) {
   };
 }
 
+function getTotalDemands(weekData) {
+  return weekData.reduce((acc, dayData) => acc + dayData.entries.length, 0);
+}
+
 function renderAnalyticsModal() {
   if (!analyticsModal || !analyticsWeekRange) return;
 
@@ -793,12 +893,28 @@ function renderAnalyticsModal() {
   analyticsWeekRange.textContent = `${formatDate(analyticsMonday)} - ${formatDate(friday)}`;
 
   const weekData = getWeekDataForMonday(analyticsMonday);
+  const previousWeekData = getWeekDataForMonday(addDays(analyticsMonday, -7));
   const analytics = buildWeeklyAnalytics(weekData);
 
-  renderLineChart(chartDemandPerDay, analytics.demandsByDay, "Sem demandas nesta semana.");
-  renderBarChart(chartProblemsByDay, analytics.topDaysByProblems, "Sem problemas registrados nesta semana.");
-  renderBarChart(chartTopSystems, analytics.topSystems, "Sem sistemas com ocorrências nesta semana.");
-  renderRanking(chartTopCases, analytics.topCases, "Sem casos para analisar nesta semana.");
+  const totalCurrentWeek = getTotalDemands(weekData);
+  const totalPreviousWeek = getTotalDemands(previousWeekData);
+  const avgPerDay = (totalCurrentWeek / weekdayOrder.length).toFixed(1);
+  const mostCriticalSystem = analytics.topSystems[0]?.label || "-";
+  const weeklyDiffPercent = totalPreviousWeek
+    ? Math.round(((totalCurrentWeek - totalPreviousWeek) / totalPreviousWeek) * 100)
+    : 0;
+  const weeklyDiffSignal = weeklyDiffPercent > 0 ? "+" : "";
+
+  if (kpiTotalAtendimentos) kpiTotalAtendimentos.textContent = String(totalCurrentWeek);
+  if (kpiMediaDia) kpiMediaDia.textContent = String(avgPerDay);
+  if (kpiSistemaCritico) kpiSistemaCritico.textContent = mostCriticalSystem;
+  if (kpiVariacaoSemanal) kpiVariacaoSemanal.textContent = `${weeklyDiffSignal}${weeklyDiffPercent}%`;
+
+  renderVerticalBarChart(chartDemandPerDay, analytics.demandsByDay, "Sem demandas nesta semana.");
+  renderRankList(chartTopCases, analytics.topCases, "Sem casos para analisar nesta semana.");
+  renderMiniHorizontal(chartDemandRanking, analytics.demandsByDay, "Sem demandas nesta semana.");
+  renderDonutChart(chartTopSystems, analytics.topSystems, "Sem sistemas com ocorrências nesta semana.");
+  renderVerticalBarChart(chartProblemsByDay, analytics.topDaysByProblems, "Sem problemas registrados nesta semana.");
 }
 
 function openAnalyticsModal() {
@@ -858,27 +974,6 @@ function openFilterModal() {
 function closeFilterModal() {
   if (!filterModal) return;
   filterModal.setAttribute("aria-hidden", "true");
-}
-
-function openDayRecordsModal(dayName, dateLabel, entries) {
-  if (!dayRecordsTitle || !dayRecordsList || !dayRecordsModal) return;
-
-  dayRecordsTitle.textContent = `${dayName} • ${dateLabel}`;
-  dayRecordsList.innerHTML = "";
-
-  entries.forEach((entry) => {
-    const item = document.createElement("article");
-    item.className = "day-record-item";
-    item.innerHTML = `
-      <h4>${entry.title}</h4>
-      <p>Sistema: ${entry.system}</p>
-      <small>Documentos: ${entry.documents.join(", ")}</small>
-    `;
-    dayRecordsList.appendChild(item);
-  });
-
-  dayRecordsModal.setAttribute("aria-hidden", "false");
-  animateModalCard(dayRecordsModal);
 }
 
 function openEntryDetailsModal(dayName, dateLabel, entry) {
