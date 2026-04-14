@@ -361,7 +361,7 @@ async function updateAttendanceInDatabase({ idPrimary, incident, system, observa
     "Content-Type": "application/json",
     apikey: APP_CONFIG.supabaseAnonKey,
     Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
-    Prefer: "return=minimal",
+    Prefer: "return=representation",
   };
 
   const payload = {
@@ -380,6 +380,41 @@ async function updateAttendanceInDatabase({ idPrimary, incident, system, observa
     const body = await response.text();
     throw new Error(`Supabase ${response.status}: ${body}`);
   }
+
+  const updatedRows = await response.json();
+  if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+    throw new Error(`Nenhum registro encontrado para id_primary=${idPrimary}.`);
+  }
+}
+
+async function updateAttendanceDocumentsInDatabase({ idPrimary, documents }) {
+  const endpoint = `${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?id_primary=eq.${idPrimary}`;
+  const headers = {
+    "Content-Type": "application/json",
+    apikey: APP_CONFIG.supabaseAnonKey,
+    Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
+    Prefer: "return=representation",
+  };
+
+  const payload = {
+    documento: documents.join(", "),
+  };
+
+  const response = await fetch(endpoint, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Supabase ${response.status}: ${body}`);
+  }
+
+  const updatedRows = await response.json();
+  if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+    throw new Error(`Nenhum registro encontrado para id_primary=${idPrimary}.`);
+  }
 }
 
 async function deleteAttendanceFromDatabase(idPrimary) {
@@ -387,7 +422,7 @@ async function deleteAttendanceFromDatabase(idPrimary) {
   const headers = {
     apikey: APP_CONFIG.supabaseAnonKey,
     Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
-    Prefer: "return=minimal",
+    Prefer: "return=representation",
   };
 
   const response = await fetch(endpoint, {
@@ -398,6 +433,11 @@ async function deleteAttendanceFromDatabase(idPrimary) {
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`Supabase ${response.status}: ${body}`);
+  }
+
+  const deletedRows = await response.json();
+  if (!Array.isArray(deletedRows) || deletedRows.length === 0) {
+    throw new Error(`Nenhum registro encontrado para id_primary=${idPrimary}.`);
   }
 }
 
@@ -438,11 +478,16 @@ async function loadAttendancesFromDatabase() {
     const dayData = weekData.find((item) => item.day === day);
     if (!dayData) return;
 
+    const rawDocuments = String(row.documento || "Sem documento")
+      .split(",")
+      .map((doc) => doc.trim())
+      .filter(Boolean);
+
     dayData.entries.push({
       id_primary: row.id_primary,
       title: row.incidente || "Sem incidente",
       system: row.sistema || "Sem sistema",
-      documents: [row.documento || "Sem documento"],
+      documents: rawDocuments.length ? rawDocuments : ["Sem documento"],
       observation: row.observacao || "",
       level: "danger",
     });
@@ -495,6 +540,21 @@ function updateTotal(weekData) {
 
   if (totalAtendimentos) {
     totalAtendimentos.textContent = String(total);
+  }
+}
+
+async function refreshDashboardFromDatabase() {
+  try {
+    await loadAttendancesFromDatabase();
+    renderNotifications();
+    renderWeek(selectedMonday);
+
+    if (analyticsModal?.getAttribute("aria-hidden") === "false") {
+      renderAnalyticsModal();
+    }
+  } catch (error) {
+    console.warn("Erro ao recarregar painel:", error.message);
+    window.alert(`Não foi possível atualizar o painel: ${error.message}`);
   }
 }
 
@@ -1019,23 +1079,12 @@ function openEntryDetailsModal(dayName, dateLabel, entry) {
 
     try {
       await deleteAttendanceFromDatabase(entry.id_primary);
+      closeDayRecordsModal();
+      await refreshDashboardFromDatabase();
+      emitDashboardEvent("dashboard:action-warning", "Demanda excluída");
     } catch (error) {
       window.alert(`Não foi possível excluir no banco: ${error.message}`);
-      return;
     }
-
-    const weekData = getActiveWeekData();
-    const dayData = weekData.find((itemData) => itemData.day === dayName);
-    if (!dayData) return;
-
-    const index = dayData.entries.indexOf(entry);
-    if (index < 0) return;
-
-    dayData.entries.splice(index, 1);
-    closeDayRecordsModal();
-    renderWeek(selectedMonday);
-    renderNotifications();
-    emitDashboardEvent("dashboard:action-warning", "Demanda excluída");
   });
 
   dayRecordsList.appendChild(item);
@@ -1303,22 +1352,18 @@ editEntryForm?.addEventListener("submit", async (event) => {
       system,
       observationValue: observation,
     });
+
+    closeEditEntryModal();
+    closeDayRecordsModal();
+    await refreshDashboardFromDatabase();
+
+    emitDashboardEvent("dashboard:action-success", "Demanda editada com sucesso");
   } catch (error) {
     window.alert(`Não foi possível editar no banco: ${error.message}`);
-    return;
   }
-
-  selectedEntryForEdit.title = incident;
-  selectedEntryForEdit.system = system;
-  selectedEntryForEdit.observation = observation;
-
-  closeEditEntryModal();
-  closeDayRecordsModal();
-  renderWeek(selectedMonday);
-  emitDashboardEvent("dashboard:action-success", "Demanda editada com sucesso");
 });
 
-documentsForm?.addEventListener("submit", (event) => {
+documentsForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   if (!selectedEntryForDocuments) {
@@ -1332,10 +1377,27 @@ documentsForm?.addEventListener("submit", (event) => {
     return;
   }
 
-  selectedEntryForDocuments.documents.push(...documents);
-  closeDocumentsModal();
-  renderWeek(selectedMonday);
-  emitDashboardEvent("dashboard:action-success", "Documento(s) adicionado(s)");
+  if (!selectedEntryForDocuments.id_primary) {
+    window.alert("Não foi possível atualizar documentos: id_primary não encontrado.");
+    return;
+  }
+
+  try {
+    const updatedDocuments = [...selectedEntryForDocuments.documents, ...documents];
+
+    await updateAttendanceDocumentsInDatabase({
+      idPrimary: selectedEntryForDocuments.id_primary,
+      documents: updatedDocuments,
+    });
+
+    closeDocumentsModal();
+    closeDayRecordsModal();
+    await refreshDashboardFromDatabase();
+
+    emitDashboardEvent("dashboard:action-success", "Documento(s) adicionado(s)");
+  } catch (error) {
+    window.alert(`Não foi possível atualizar documentos no banco: ${error.message}`);
+  }
 });
 
 form?.addEventListener("submit", async (event) => {
@@ -1349,18 +1411,12 @@ form?.addEventListener("submit", async (event) => {
 
   if (!incident || !documentValue || !system) return;
 
-  const weekData = getActiveWeekData();
-  const dayData = weekData.find((item) => item.day === day);
-  if (!dayData) return;
-
   const weekStart = formatDate(selectedMonday);
   const weekEnd = formatDate(addDays(selectedMonday, 4));
   const dateValue = getDateForWeekday(selectedMonday, day).toISOString().split("T")[0];
 
-  let persistedId = null;
-
   try {
-    persistedId = await saveAttendanceToDatabase({
+    await saveAttendanceToDatabase({
       incident,
       documentValue,
       system,
@@ -1370,32 +1426,14 @@ form?.addEventListener("submit", async (event) => {
       weekEnd,
       dateValue,
     });
+
+    closeModal();
+    await refreshDashboardFromDatabase();
+
+    emitDashboardEvent("dashboard:action-success", "Registro salvo com sucesso");
   } catch (error) {
     window.alert(`Não foi possível salvar no banco: ${error.message}`);
-    return;
   }
-
-  dayData.entries.push({
-    id_primary: persistedId,
-    title: incident,
-    system,
-    documents: [documentValue],
-    observation: observationValue,
-    level: "danger",
-  });
-
-  notifications.push({
-    incident,
-    document: documentValue,
-    system,
-    day,
-    createdAt: new Date().toISOString(),
-  });
-
-  renderNotifications();
-  closeModal();
-  renderWeek(selectedMonday);
-  emitDashboardEvent("dashboard:action-success", "Registro salvo com animação");
 });
 
 prevWeekBtn?.addEventListener("click", () => {
