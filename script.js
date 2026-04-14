@@ -164,12 +164,12 @@ function emitDashboardEvent(name, message) {
 
 function getExportFilename(contentDisposition) {
   if (typeof contentDisposition !== "string") {
-    return `base_atendimentos_${Date.now()}.xlsx`;
+    return base_atendimentos_${Date.now()}.xlsx;
   }
 
   const match = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
   if (!match?.[1]) {
-    return `base_atendimentos_${Date.now()}.xlsx`;
+    return base_atendimentos_${Date.now()}.xlsx;
   }
 
   return decodeURIComponent(match[1].trim());
@@ -177,7 +177,7 @@ function getExportFilename(contentDisposition) {
 
 function escapeCsvCell(value) {
   const normalized = String(value ?? "").replace(/"/g, '""');
-  return `"${normalized}"`;
+  return "${normalized}";
 }
 
 function buildRowsForLocalExport() {
@@ -225,7 +225,7 @@ function downloadLocalCsvFallback() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `base_atendimentos_local_${Date.now()}.csv`;
+  link.download = base_atendimentos_local_${Date.now()}.csv;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -233,16 +233,16 @@ function downloadLocalCsvFallback() {
 }
 
 async function exportDatabaseFromEdgeFunction() {
-  const endpoint = `${APP_CONFIG.supabaseUrl}/functions/v1/${APP_CONFIG.exportFunctionName}`;
+  const endpoint = ${APP_CONFIG.supabaseUrl}/functions/v1/${APP_CONFIG.exportFunctionName};
   const authenticatedHeaders = {
     apikey: APP_CONFIG.supabaseAnonKey,
-    Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
+    Authorization: Bearer ${APP_CONFIG.supabaseAnonKey},
   };
 
   const tryDownloadFromResponse = async (response) => {
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`Falha ao exportar base: ${response.status} ${body}`);
+      throw new Error(Falha ao exportar base: ${response.status} ${body});
     }
 
     const blob = await response.blob();
@@ -271,24 +271,24 @@ async function exportDatabaseFromEdgeFunction() {
 
       downloadLocalCsvFallback();
       window.alert(
-        `Não foi possível baixar da Edge Function. Baixamos um CSV local do painel como fallback.\n\nDetalhes: ${primaryMessage} | ${secondaryMessage}`
+        Não foi possível baixar da Edge Function. Baixamos um CSV local do painel como fallback.\n\nDetalhes: ${primaryMessage} | ${secondaryMessage}
       );
     }
   }
 }
 
 async function getNextPrimaryKey() {
-  const endpoint = `${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?select=id_primary&order=id_primary.desc&limit=1`;
+  const endpoint = ${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?select=id_primary&order=id_primary.desc&limit=1;
   const headers = {
     apikey: APP_CONFIG.supabaseAnonKey,
-    Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
+    Authorization: Bearer ${APP_CONFIG.supabaseAnonKey},
   };
 
   const response = await fetch(endpoint, { headers });
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Falha ao consultar último id_primary: ${response.status} ${body}`);
+    throw new Error(Falha ao consultar último id_primary: ${response.status} ${body});
   }
 
   const rows = await response.json();
@@ -312,11 +312,11 @@ async function saveAttendanceToDatabase({
   weekEnd,
   dateValue,
 }) {
-  const endpoint = `${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}`;
+  const endpoint = ${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()};
   const headers = {
     "Content-Type": "application/json",
     apikey: APP_CONFIG.supabaseAnonKey,
-    Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
+    Authorization: Bearer ${APP_CONFIG.supabaseAnonKey},
     Prefer: "return=minimal",
   };
 
@@ -333,7 +333,7 @@ async function saveAttendanceToDatabase({
     incidente: incident,
     documento: documentValue,
     sistema: system,
-    observacao: observationValue || `Dia: ${day} | Semana: ${weekStart} - ${weekEnd}`,
+    observacao: observationValue || Dia: ${day} | Semana: ${weekStart} - ${weekEnd},
   };
 
   const payload = {
@@ -352,16 +352,16 @@ async function saveAttendanceToDatabase({
   }
 
   const body = await response.text();
-  throw new Error(`Supabase ${response.status}: ${body}`);
+  throw new Error(Supabase ${response.status}: ${body});
 }
 
 async function updateAttendanceInDatabase({ idPrimary, incident, system, observationValue }) {
-  const endpoint = `${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?id_primary=eq.${idPrimary}`;
+  const endpoint = ${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?id_primary=eq.${idPrimary};
   const headers = {
     "Content-Type": "application/json",
     apikey: APP_CONFIG.supabaseAnonKey,
-    Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
-    Prefer: "return=representation",
+    Authorization: Bearer ${APP_CONFIG.supabaseAnonKey},
+    Prefer: "return=minimal",
   };
 
   const payload = {
@@ -378,51 +378,16 @@ async function updateAttendanceInDatabase({ idPrimary, incident, system, observa
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Supabase ${response.status}: ${body}`);
-  }
-
-  const updatedRows = await response.json();
-  if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
-    throw new Error(`Nenhum registro encontrado para id_primary=${idPrimary}.`);
-  }
-}
-
-async function updateAttendanceDocumentsInDatabase({ idPrimary, documents }) {
-  const endpoint = `${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?id_primary=eq.${idPrimary}`;
-  const headers = {
-    "Content-Type": "application/json",
-    apikey: APP_CONFIG.supabaseAnonKey,
-    Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
-    Prefer: "return=representation",
-  };
-
-  const payload = {
-    documento: documents.join(", "),
-  };
-
-  const response = await fetch(endpoint, {
-    method: "PATCH",
-    headers,
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Supabase ${response.status}: ${body}`);
-  }
-
-  const updatedRows = await response.json();
-  if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
-    throw new Error(`Nenhum registro encontrado para id_primary=${idPrimary}.`);
+    throw new Error(Supabase ${response.status}: ${body});
   }
 }
 
 async function deleteAttendanceFromDatabase(idPrimary) {
-  const endpoint = `${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?id_primary=eq.${idPrimary}`;
+  const endpoint = ${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?id_primary=eq.${idPrimary};
   const headers = {
     apikey: APP_CONFIG.supabaseAnonKey,
-    Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
-    Prefer: "return=representation",
+    Authorization: Bearer ${APP_CONFIG.supabaseAnonKey},
+    Prefer: "return=minimal",
   };
 
   const response = await fetch(endpoint, {
@@ -432,27 +397,22 @@ async function deleteAttendanceFromDatabase(idPrimary) {
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Supabase ${response.status}: ${body}`);
-  }
-
-  const deletedRows = await response.json();
-  if (!Array.isArray(deletedRows) || deletedRows.length === 0) {
-    throw new Error(`Nenhum registro encontrado para id_primary=${idPrimary}.`);
+    throw new Error(Supabase ${response.status}: ${body});
   }
 }
 
 async function loadAttendancesFromDatabase() {
-  const endpoint = `${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?select=id_primary,data,incidente,documento,sistema,observacao&order=data.asc,id_primary.asc`;
+  const endpoint = ${APP_CONFIG.supabaseUrl}/rest/v1/${getRestTableName()}?select=id_primary,data,incidente,documento,sistema,observacao&order=data.asc,id_primary.asc;
   const headers = {
     apikey: APP_CONFIG.supabaseAnonKey,
-    Authorization: `Bearer ${APP_CONFIG.supabaseAnonKey}`,
+    Authorization: Bearer ${APP_CONFIG.supabaseAnonKey},
   };
 
   const response = await fetch(endpoint, { headers });
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Falha ao carregar atendimentos: ${response.status} ${body}`);
+    throw new Error(Falha ao carregar atendimentos: ${response.status} ${body});
   }
 
   const rows = await response.json();
@@ -478,16 +438,11 @@ async function loadAttendancesFromDatabase() {
     const dayData = weekData.find((item) => item.day === day);
     if (!dayData) return;
 
-    const rawDocuments = String(row.documento || "Sem documento")
-      .split(",")
-      .map((doc) => doc.trim())
-      .filter(Boolean);
-
     dayData.entries.push({
       id_primary: row.id_primary,
       title: row.incidente || "Sem incidente",
       system: row.sistema || "Sem sistema",
-      documents: rawDocuments.length ? rawDocuments : ["Sem documento"],
+      documents: [row.documento || "Sem documento"],
       observation: row.observacao || "",
       level: "danger",
     });
@@ -540,21 +495,6 @@ function updateTotal(weekData) {
 
   if (totalAtendimentos) {
     totalAtendimentos.textContent = String(total);
-  }
-}
-
-async function refreshDashboardFromDatabase() {
-  try {
-    await loadAttendancesFromDatabase();
-    renderNotifications();
-    renderWeek(selectedMonday);
-
-    if (analyticsModal?.getAttribute("aria-hidden") === "false") {
-      renderAnalyticsModal();
-    }
-  } catch (error) {
-    console.warn("Erro ao recarregar painel:", error.message);
-    window.alert(`Não foi possível atualizar o painel: ${error.message}`);
   }
 }
 
@@ -656,13 +596,13 @@ function ensureChartTooltip(container) {
 
 function showChartTooltip(container, event, label, value, prefix = "Quantidade") {
   const tooltip = ensureChartTooltip(container);
-  tooltip.innerHTML = `<strong>${label}</strong><br/>${prefix}: ${value}`;
+  tooltip.innerHTML = <strong>${label}</strong><br/>${prefix}: ${value};
 
   const rect = container.getBoundingClientRect();
   const left = event.clientX - rect.left + 12;
   const top = event.clientY - rect.top - 8;
-  tooltip.style.left = `${left}px`;
-  tooltip.style.top = `${top}px`;
+  tooltip.style.left = ${left}px;
+  tooltip.style.top = ${top}px;
   tooltip.style.opacity = "1";
   tooltip.style.transform = "translateY(0)";
 }
@@ -681,7 +621,7 @@ function renderVerticalBarChart(container, data, emptyMessage = "Sem dados.") {
   container.style.position = "relative";
 
   if (!data.length) {
-    container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
+    container.innerHTML = <p class="chart-empty">${emptyMessage}</p>;
     return;
   }
 
@@ -720,7 +660,7 @@ function renderRankList(container, data, emptyMessage = "Sem dados.") {
   container.style.position = "relative";
 
   if (!data.length) {
-    container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
+    container.innerHTML = <p class="chart-empty">${emptyMessage}</p>;
     return;
   }
 
@@ -752,7 +692,7 @@ function renderMiniHorizontal(container, data, emptyMessage = "Sem dados.") {
   container.style.position = "relative";
 
   if (!data.length) {
-    container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
+    container.innerHTML = <p class="chart-empty">${emptyMessage}</p>;
     return;
   }
 
@@ -806,13 +746,13 @@ function renderDonutChart(container, data, emptyMessage = "Sem dados.") {
   container.style.position = "relative";
 
   if (!data.length) {
-    container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
+    container.innerHTML = <p class="chart-empty">${emptyMessage}</p>;
     return;
   }
 
   const total = data.reduce((acc, item) => acc + item.value, 0);
   if (total <= 0) {
-    container.innerHTML = `<p class="chart-empty">${emptyMessage}</p>`;
+    container.innerHTML = <p class="chart-empty">${emptyMessage}</p>;
     return;
   }
 
@@ -950,7 +890,7 @@ function renderAnalyticsModal() {
   }
 
   const friday = addDays(analyticsMonday, 4);
-  analyticsWeekRange.textContent = `${formatDate(analyticsMonday)} - ${formatDate(friday)}`;
+  analyticsWeekRange.textContent = ${formatDate(analyticsMonday)} - ${formatDate(friday)};
 
   const weekData = getWeekDataForMonday(analyticsMonday);
   const previousWeekData = getWeekDataForMonday(addDays(analyticsMonday, -7));
@@ -968,7 +908,7 @@ function renderAnalyticsModal() {
   if (kpiTotalAtendimentos) kpiTotalAtendimentos.textContent = String(totalCurrentWeek);
   if (kpiMediaDia) kpiMediaDia.textContent = String(avgPerDay);
   if (kpiSistemaCritico) kpiSistemaCritico.textContent = mostCriticalSystem;
-  if (kpiVariacaoSemanal) kpiVariacaoSemanal.textContent = `${weeklyDiffSignal}${weeklyDiffPercent}%`;
+  if (kpiVariacaoSemanal) kpiVariacaoSemanal.textContent = ${weeklyDiffSignal}${weeklyDiffPercent}%;
 
   renderVerticalBarChart(chartDemandPerDay, analytics.demandsByDay, "Sem demandas nesta semana.");
   renderRankList(chartTopCases, analytics.topCases, "Sem casos para analisar nesta semana.");
@@ -1011,7 +951,7 @@ function populateSystemFilterOptions() {
 
   getUniqueSystemsFromWeek().forEach((system) => {
     const selected = system === activeSystemFilter ? " selected" : "";
-    options.push(`<option value="${system}"${selected}>${system}</option>`);
+    options.push(<option value="${system}"${selected}>${system}</option>);
   });
 
   filterSystemSelect.innerHTML = options.join("");
@@ -1039,18 +979,18 @@ function closeFilterModal() {
 function openEntryDetailsModal(dayName, dateLabel, entry) {
   if (!dayRecordsTitle || !dayRecordsList || !dayRecordsModal) return;
 
-  dayRecordsTitle.textContent = `${dayName} • ${dateLabel}`;
+  dayRecordsTitle.textContent = ${dayName} • ${dateLabel};
   dayRecordsList.innerHTML = "";
 
   const item = document.createElement("article");
   item.className = "day-record-item";
 
-  const documentsMarkup = entry.documents.map((document) => `<li>${document}</li>`).join("");
+  const documentsMarkup = entry.documents.map((document) => <li>${document}</li>).join("");
 
   item.innerHTML = `
     <h4>Erro: ${entry.title}</h4>
     <p>Sistema: ${entry.system}</p>
-    ${entry.observation ? `<p>Observação: ${entry.observation}</p>` : ""}
+    ${entry.observation ? <p>Observação: ${entry.observation}</p> : ""}
     <small>Documentos (${entry.documents.length}):</small>
     <ul>${documentsMarkup}</ul>
     <div class="detail-actions">
@@ -1079,12 +1019,23 @@ function openEntryDetailsModal(dayName, dateLabel, entry) {
 
     try {
       await deleteAttendanceFromDatabase(entry.id_primary);
-      closeDayRecordsModal();
-      await refreshDashboardFromDatabase();
-      emitDashboardEvent("dashboard:action-warning", "Demanda excluída");
     } catch (error) {
-      window.alert(`Não foi possível excluir no banco: ${error.message}`);
+      window.alert(Não foi possível excluir no banco: ${error.message});
+      return;
     }
+
+    const weekData = getActiveWeekData();
+    const dayData = weekData.find((itemData) => itemData.day === dayName);
+    if (!dayData) return;
+
+    const index = dayData.entries.indexOf(entry);
+    if (index < 0) return;
+
+    dayData.entries.splice(index, 1);
+    closeDayRecordsModal();
+    renderWeek(selectedMonday);
+    renderNotifications();
+    emitDashboardEvent("dashboard:action-warning", "Demanda excluída");
   });
 
   dayRecordsList.appendChild(item);
@@ -1117,7 +1068,7 @@ function renderWeek(baseMonday) {
 
   board.innerHTML = "";
   const friday = addDays(baseMonday, 4);
-  weekRange.textContent = `${formatDate(baseMonday)} - ${formatDate(friday)}`;
+  weekRange.textContent = ${formatDate(baseMonday)} - ${formatDate(friday)};
 
   const weekData = getActiveWeekData();
   updateTotal(weekData);
@@ -1142,12 +1093,12 @@ function renderWeek(baseMonday) {
 
       entryNode.classList.add(entry.level);
       entryNode.classList.add("is-entering");
-      entryNode.style.animationDelay = `${Math.min(entryIndex * 70, 280)}ms`;
+      entryNode.style.animationDelay = ${Math.min(entryIndex * 70, 280)}ms;
 
       entryNode.querySelector("h4").textContent = entry.title;
       entryNode.querySelector(".system-pill").textContent = entry.system || "Sem sistema";
       entryNode.querySelector("small").textContent =
-        `${entry.documents.length} erro${entry.documents.length > 1 ? "s" : ""} com documento`;
+        ${entry.documents.length} erro${entry.documents.length > 1 ? "s" : ""} com documento;
 
       const openDetails = () => {
         openEntryDetailsModal(day.day, dateLabel, entry);
@@ -1276,7 +1227,7 @@ exportBtn?.addEventListener("click", async () => {
   try {
     await exportDatabaseFromEdgeFunction();
   } catch (error) {
-    window.alert(`Não foi possível exportar a base: ${error.message}`);
+    window.alert(Não foi possível exportar a base: ${error.message});
   }
 });
 
@@ -1352,18 +1303,22 @@ editEntryForm?.addEventListener("submit", async (event) => {
       system,
       observationValue: observation,
     });
-
-    closeEditEntryModal();
-    closeDayRecordsModal();
-    await refreshDashboardFromDatabase();
-
-    emitDashboardEvent("dashboard:action-success", "Demanda editada com sucesso");
   } catch (error) {
-    window.alert(`Não foi possível editar no banco: ${error.message}`);
+    window.alert(Não foi possível editar no banco: ${error.message});
+    return;
   }
+
+  selectedEntryForEdit.title = incident;
+  selectedEntryForEdit.system = system;
+  selectedEntryForEdit.observation = observation;
+
+  closeEditEntryModal();
+  closeDayRecordsModal();
+  renderWeek(selectedMonday);
+  emitDashboardEvent("dashboard:action-success", "Demanda editada com sucesso");
 });
 
-documentsForm?.addEventListener("submit", async (event) => {
+documentsForm?.addEventListener("submit", (event) => {
   event.preventDefault();
 
   if (!selectedEntryForDocuments) {
@@ -1377,27 +1332,10 @@ documentsForm?.addEventListener("submit", async (event) => {
     return;
   }
 
-  if (!selectedEntryForDocuments.id_primary) {
-    window.alert("Não foi possível atualizar documentos: id_primary não encontrado.");
-    return;
-  }
-
-  try {
-    const updatedDocuments = [...selectedEntryForDocuments.documents, ...documents];
-
-    await updateAttendanceDocumentsInDatabase({
-      idPrimary: selectedEntryForDocuments.id_primary,
-      documents: updatedDocuments,
-    });
-
-    closeDocumentsModal();
-    closeDayRecordsModal();
-    await refreshDashboardFromDatabase();
-
-    emitDashboardEvent("dashboard:action-success", "Documento(s) adicionado(s)");
-  } catch (error) {
-    window.alert(`Não foi possível atualizar documentos no banco: ${error.message}`);
-  }
+  selectedEntryForDocuments.documents.push(...documents);
+  closeDocumentsModal();
+  renderWeek(selectedMonday);
+  emitDashboardEvent("dashboard:action-success", "Documento(s) adicionado(s)");
 });
 
 form?.addEventListener("submit", async (event) => {
@@ -1411,12 +1349,18 @@ form?.addEventListener("submit", async (event) => {
 
   if (!incident || !documentValue || !system) return;
 
+  const weekData = getActiveWeekData();
+  const dayData = weekData.find((item) => item.day === day);
+  if (!dayData) return;
+
   const weekStart = formatDate(selectedMonday);
   const weekEnd = formatDate(addDays(selectedMonday, 4));
   const dateValue = getDateForWeekday(selectedMonday, day).toISOString().split("T")[0];
 
+  let persistedId = null;
+
   try {
-    await saveAttendanceToDatabase({
+    persistedId = await saveAttendanceToDatabase({
       incident,
       documentValue,
       system,
@@ -1426,14 +1370,32 @@ form?.addEventListener("submit", async (event) => {
       weekEnd,
       dateValue,
     });
-
-    closeModal();
-    await refreshDashboardFromDatabase();
-
-    emitDashboardEvent("dashboard:action-success", "Registro salvo com sucesso");
   } catch (error) {
-    window.alert(`Não foi possível salvar no banco: ${error.message}`);
+    window.alert(Não foi possível salvar no banco: ${error.message});
+    return;
   }
+
+  dayData.entries.push({
+    id_primary: persistedId,
+    title: incident,
+    system,
+    documents: [documentValue],
+    observation: observationValue,
+    level: "danger",
+  });
+
+  notifications.push({
+    incident,
+    document: documentValue,
+    system,
+    day,
+    createdAt: new Date().toISOString(),
+  });
+
+  renderNotifications();
+  closeModal();
+  renderWeek(selectedMonday);
+  emitDashboardEvent("dashboard:action-success", "Registro salvo com animação");
 });
 
 prevWeekBtn?.addEventListener("click", () => {
