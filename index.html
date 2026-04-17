@@ -117,19 +117,40 @@
       <form class="modal-card" id="record-form">
         <h3>Novo registro</h3>
 
-        <label>Incidente <input id="incident-input" required /></label>
-        <label>Documento <input id="document-input" required /></label>
-        <label>Sistema <input id="system-input" required /></label>
-
         <label>
-          Observação
-          <textarea id="observation-input" rows="3" placeholder="Detalhes adicionais do atendimento"></textarea>
+          Incidente
+          <input id="incident-input" required />
         </label>
 
         <label>
-          Dia (automático)
-          <input id="day-display" readonly />
-          <input id="day-select" type="hidden" />
+          Documento
+          <input id="document-input" required />
+        </label>
+
+        <label>
+          Sistema
+          <input id="system-input" required />
+        </label>
+
+        <label>
+          Observação
+          <textarea
+            id="observation-input"
+            rows="3"
+            placeholder="Detalhes adicionais do atendimento"
+          ></textarea>
+        </label>
+
+        <label>
+          Dia
+          <select id="day-select" required>
+            <option value="" selected disabled>Selecione o dia</option>
+            <option value="SEGUNDA">SEGUNDA</option>
+            <option value="TERÇA">TERÇA</option>
+            <option value="QUARTA">QUARTA</option>
+            <option value="QUINTA">QUINTA</option>
+            <option value="SEXTA">SEXTA</option>
+          </select>
         </label>
 
         <div class="modal-actions">
@@ -239,7 +260,11 @@
 
         <label>
           Documentos
-          <textarea id="documents-input" rows="4" placeholder="Ex.: 86099578536, 12345678900"></textarea>
+          <textarea
+            id="documents-input"
+            rows="4"
+            placeholder="Ex.: 86099578536, 12345678900"
+          ></textarea>
         </label>
 
         <div class="modal-actions">
@@ -252,12 +277,24 @@
     <section class="modal" id="edit-entry-modal" aria-hidden="true">
       <form class="modal-card" id="edit-entry-form">
         <h3>Editar demanda</h3>
-        <label>Incidente <input id="edit-incident-input" required /></label>
-        <label>Sistema <input id="edit-system-input" required /></label>
+
+        <label>
+          Incidente
+          <input id="edit-incident-input" required />
+        </label>
+
+        <label>
+          Sistema
+          <input id="edit-system-input" required />
+        </label>
 
         <label>
           Observação
-          <textarea id="edit-observation-input" rows="3" placeholder="Detalhes da demanda"></textarea>
+          <textarea
+            id="edit-observation-input"
+            rows="3"
+            placeholder="Detalhes da demanda"
+          ></textarea>
         </label>
 
         <div class="modal-actions">
