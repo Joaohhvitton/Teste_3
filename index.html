@@ -1,348 +1,1071 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Painel de Atendimentos N3</title>
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>N3 Ops · Painel de Atendimentos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@10..48,400;10..48,600;10..48,700;10..48,800&family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="root"></div>
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <main class="dashboard">
-      <header class="topbar">
-        <div class="brand-wrap">
-          <div class="logo-divider">
-            <img src="Logo_png-removebg-preview.png" alt="RedeFlex" class="brand-logo" />
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef, useMemo, useDeferredValue, memo } = React;
+
+// ══════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════
+const CFG = {
+  url:      "https://qqexlkssyarkmhnxzcbc.supabase.co",
+  key:      "sb_publishable_skavb40bqySKywet3yAWgA_RF0_uI4c",
+  table:    "base_atentimento",
+  exportFn: "export-base-atendimentos",
+  timeout:  15000,           // ms por requisição
+  refresh:  180000,          // auto-refresh (3 min)
+};
+
+const DAYS     = ["SEGUNDA","TERÇA","QUARTA","QUINTA","SEXTA"];
+const MONTHS   = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+const MONTHS_F = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const PALETTE  = ["#4ECDC4","#F87171","#A78BFA","#FBB040","#60A5FA","#4ADE80"];
+const SWAL_T   = { background:"#10101E", color:"#F0F0FA", confirmButtonColor:"#4ECDC4", cancelButtonColor:"rgba(255,255,255,.1)" };
+
+// ══════════════════════════════════════════════
+// DATE UTILS
+// ══════════════════════════════════════════════
+const getMonday = d => { const dt=new Date(d),day=dt.getDay(); dt.setDate(dt.getDate()+(day===0?-6:1-day)); dt.setHours(0,0,0,0); return dt; };
+const addDays   = (d,n) => { const dt=new Date(d); dt.setDate(dt.getDate()+n); return dt; };
+const toISO     = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const fmtDate   = d => d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"});
+const fmtShort  = d => d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+const wkKey     = m => toISO(m);
+const parseDateLocal = s => { if(typeof s!=="string") return null; const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); return m?new Date(+m[1],+m[2]-1,+m[3]):null; };
+const isToday   = d => { const n=new Date(); return d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()&&d.getDate()===n.getDate(); };
+const isWeekend = d => d.getDay()===0||d.getDay()===6;
+const nextWorkday = d => { let dt=new Date(d); dt.setHours(0,0,0,0); while(isWeekend(dt)) dt=addDays(dt,1); return dt; };
+const buildEmptyWeek = () => DAYS.map(day=>({day,entries:[]}));
+
+// ══════════════════════════════════════════════
+// HTTP (timeout + erro legível)
+// ══════════════════════════════════════════════
+const hdrs = (x={}) => ({"apikey":CFG.key,"Authorization":`Bearer ${CFG.key}`,...x});
+
+async function fx(url,opt={}) {
+  const ctrl=new AbortController();
+  const t=setTimeout(()=>ctrl.abort(),CFG.timeout);
+  try {
+    return await fetch(url,{...opt,signal:ctrl.signal});
+  } catch(e) {
+    if(e.name==="AbortError") throw new Error("Tempo de conexão esgotado. Verifique a rede ou o firewall.");
+    throw new Error("Falha de rede: "+e.message);
+  } finally { clearTimeout(t); }
+}
+
+// ══════════════════════════════════════════════
+// SUPABASE API
+// ══════════════════════════════════════════════
+async function dbLoad() {
+  const r = await fx(`${CFG.url}/rest/v1/${CFG.table}?select=id_primary,data,incidente,documento,sistema,observacao&order=data.asc,id_primary.asc`,{headers:hdrs()});
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+async function dbNextId() {
+  try {
+    const r = await fx(`${CFG.url}/rest/v1/${CFG.table}?select=id_primary&order=id_primary.desc&limit=1`,{headers:hdrs()});
+    const rows = await r.json();
+    const last = parseInt(rows?.[0]?.id_primary,10);
+    return isNaN(last)?1:last+1;
+  } catch { return Date.now(); }
+}
+
+async function dbInsert(payload) {
+  const r = await fx(`${CFG.url}/rest/v1/${CFG.table}`,{method:"POST",headers:hdrs({"Content-Type":"application/json","Prefer":"return=representation"}),body:JSON.stringify(payload)});
+  if (!r.ok) throw new Error(`Erro ao salvar (HTTP ${r.status}): ${await r.text()}`);
+  const rows = await r.json().catch(()=>null);
+  return Array.isArray(rows)&&rows.length?rows[0]:payload;
+}
+
+async function dbDelete(id) {
+  const numId = Number(id);
+  if (isNaN(numId)) throw new Error(`ID inválido: ${id}`);
+  const q = `${CFG.url}/rest/v1/${CFG.table}?id_primary=eq.${numId}`;
+  const r = await fx(q,{method:"DELETE",headers:hdrs({"Prefer":"return=minimal"})});
+  if (!r.ok) throw new Error(`Erro ao excluir (HTTP ${r.status}): ${await r.text()}`);
+  // Verificação real: consulta o banco para confirmar que o registro sumiu
+  const chk = await fx(`${q}&select=id_primary`,{headers:hdrs()});
+  const rows = chk.ok ? await chk.json().catch(()=>[]) : [];
+  if (Array.isArray(rows)&&rows.length>0) throw new Error(
+    "O banco aceitou a requisição, mas o registro NÃO foi excluído.\n"+
+    "Causa típica: falta a política RLS de DELETE para a role anon.\n\n"+
+    "Rode no SQL Editor do Supabase:\n"+
+    `CREATE POLICY "anon_delete" ON ${CFG.table}\nFOR DELETE TO anon USING (true);`
+  );
+  return true;
+}
+
+async function dbUpdate(id, patch) {
+  const q = `${CFG.url}/rest/v1/${CFG.table}?id_primary=eq.${Number(id)}`;
+  const r = await fx(q,{method:"PATCH",headers:hdrs({"Content-Type":"application/json","Prefer":"return=minimal"}),body:JSON.stringify(patch)});
+  if (!r.ok) throw new Error(`Erro ao editar (HTTP ${r.status}): ${await r.text()}`);
+  // Verificação real: lê o registro de volta e confere se os campos mudaram
+  const chk = await fx(`${q}&select=${Object.keys(patch).join(",")}`,{headers:hdrs()});
+  const rows = chk.ok ? await chk.json().catch(()=>[]) : [];
+  const row = Array.isArray(rows)?rows[0]:null;
+  const ok = row && Object.keys(patch).every(k=>String(row[k]??"")===String(patch[k]??""));
+  if (!ok) throw new Error(
+    "O banco aceitou a requisição, mas o registro NÃO foi alterado.\n"+
+    "Causa típica: falta a política RLS de UPDATE para a role anon.\n\n"+
+    "Rode no SQL Editor do Supabase:\n"+
+    `CREATE POLICY "anon_update" ON ${CFG.table}\nFOR UPDATE TO anon USING (true) WITH CHECK (true);`
+  );
+  return row;
+}
+
+// ══════════════════════════════════════════════
+// DATA TRANSFORM
+// ══════════════════════════════════════════════
+const splitDocs = s => {
+  const docs=(s||"").split(/[,;]+/).map(x=>x.trim()).filter(Boolean);
+  return docs.length?docs:["Sem documento"];
+};
+
+const rowToEntry = row => ({
+  id_primary: row.id_primary,
+  date:       row.data,
+  title:      row.incidente||"Sem incidente",
+  system:     row.sistema||"Sem sistema",
+  documents:  splitDocs(row.documento),
+  observation:row.observacao||"",
+});
+
+function rowsToStore(rows) {
+  const store = new Map(), notifs = [];
+  rows.forEach(row=>{
+    const date=parseDateLocal(row.data); if(!date) return;
+    const di=date.getDay()-1; if(di<0||di>=DAYS.length) return;
+    const day=DAYS[di], monday=getMonday(date), k=wkKey(monday);
+    if(!store.has(k)) store.set(k,buildEmptyWeek());
+    const dayD=store.get(k).find(d=>d.day===day); if(!dayD) return;
+    dayD.entries.push(rowToEntry(row));
+    notifs.push({incident:row.incidente,document:row.documento,system:row.sistema,day,createdAt:`${row.data}T00:00:00`});
+  });
+  return {store,notifs,total:rows.length};
+}
+
+// ── Mutações locais imutáveis (sem refetch, sem travar) ──
+function storeInsertRow(store,row) {
+  const date=parseDateLocal(row.data); if(!date) return store;
+  const di=date.getDay()-1; if(di<0||di>=DAYS.length) return store;
+  const k=wkKey(getMonday(date));
+  const week=(store.get(k)||buildEmptyWeek()).map(d=>
+    d.day===DAYS[di]?{...d,entries:[...d.entries,rowToEntry(row)]}:d
+  );
+  store.set(k,week);
+  return store;
+}
+
+function storeRemoveId(store,id) {
+  store.forEach((week,k)=>{
+    let hit=false;
+    const nw=week.map(d=>{
+      const ne=d.entries.filter(e=>e.id_primary!==id);
+      if(ne.length!==d.entries.length){hit=true;return{...d,entries:ne};}
+      return d;
+    });
+    if(hit) store.set(k,nw);
+  });
+  return store;
+}
+
+function storePatchId(store,id,patchFn) {
+  store.forEach((week,k)=>{
+    let hit=false;
+    const nw=week.map(d=>{
+      const idx=d.entries.findIndex(e=>e.id_primary===id);
+      if(idx===-1) return d;
+      hit=true;
+      const ne=[...d.entries]; ne[idx]=patchFn(ne[idx]);
+      return{...d,entries:ne};
+    });
+    if(hit) store.set(k,nw);
+  });
+  return store;
+}
+
+// ══════════════════════════════════════════════
+// HOOKS
+// ══════════════════════════════════════════════
+function useToast() {
+  const [toasts,setToasts]=useState([]);
+  const add=useCallback((type,msg,sub="")=>{
+    const id=Date.now()+Math.random();
+    setToasts(p=>[...p.slice(-3),{id,type,msg,sub}]);
+    setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),3500);
+  },[]);
+  return {toasts,add};
+}
+
+function useCopyToClipboard() {
+  return useCallback(async (text,toast)=>{
+    try { await navigator.clipboard.writeText(text); toast("s","Copiado!",text.slice(0,40)); }
+    catch { toast("e","Não foi possível copiar"); }
+  },[]);
+}
+
+const swalError=(title,msg)=>Swal.fire({title,html:`<pre style="font-size:.68rem;text-align:left;white-space:pre-wrap;color:#F87171">${String(msg).replace(/</g,"&lt;")}</pre>`,icon:"error",...SWAL_T});
+
+// ══════════════════════════════════════════════
+// CHARTS
+// ══════════════════════════════════════════════
+Chart.defaults.color="#5E5E80"; Chart.defaults.borderColor="rgba(255,255,255,.04)"; Chart.defaults.font.family="'DM Sans',sans-serif";
+const chartReg=new Map();
+const destroyChart=id=>{ if(chartReg.has(id)){chartReg.get(id).destroy();chartReg.delete(id);} };
+
+function BarChart({id,data,horizontal=false}) {
+  const ref=useRef(null);
+  useEffect(()=>{
+    if(!ref.current||!data.length) return;
+    destroyChart(id);
+    const c=new Chart(ref.current,{
+      type:"bar",
+      data:{labels:data.map(d=>d.label),datasets:[{data:data.map(d=>d.value),backgroundColor:PALETTE.map(p=>p+"CC"),borderColor:PALETTE,borderWidth:1,borderRadius:6,borderSkipped:false}]},
+      options:{indexAxis:horizontal?"y":"x",responsive:true,maintainAspectRatio:false,animation:{duration:450},
+        plugins:{legend:{display:false},tooltip:{backgroundColor:"rgba(12,12,22,.96)",titleColor:"#F0F0FA",bodyColor:"#A0A0BE",borderColor:"rgba(255,255,255,.1)",borderWidth:1,padding:10}},
+        scales:{x:{grid:{color:"rgba(255,255,255,.03)"},ticks:{font:{size:11}}},y:{grid:{color:"rgba(255,255,255,.03)"},ticks:{font:{size:11},precision:0},beginAtZero:true}}}
+    });
+    chartReg.set(id,c);
+    return()=>destroyChart(id);
+  },[data]);
+  if(!data.length) return <div className="ch-empty">Sem dados</div>;
+  return <div className="ch-area"><canvas ref={ref}/></div>;
+}
+
+function DonutChart({id,data}) {
+  const ref=useRef(null);
+  const top=data.slice(0,6);
+  const total=top.reduce((a,d)=>a+d.value,0);
+  useEffect(()=>{
+    if(!ref.current||!total) return;
+    destroyChart(id);
+    const c=new Chart(ref.current,{
+      type:"doughnut",
+      data:{labels:top.map(d=>d.label),datasets:[{data:top.map(d=>d.value),backgroundColor:PALETTE.slice(0,top.length),borderColor:"rgba(255,255,255,.05)",borderWidth:2,hoverOffset:6}]},
+      options:{responsive:true,maintainAspectRatio:true,cutout:"65%",animation:{duration:450},
+        plugins:{legend:{display:false},tooltip:{backgroundColor:"rgba(12,12,22,.96)",titleColor:"#F0F0FA",bodyColor:"#A0A0BE",borderColor:"rgba(255,255,255,.1)",borderWidth:1,padding:10}}},
+      plugins:[{id:"ct",beforeDraw(ch){const{ctx,width:w,height:h}=ch;ctx.save();ctx.font=`500 18px "DM Mono",monospace`;ctx.fillStyle="#F0F0FA";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(String(total),w/2,h/2-8);ctx.font=`11px "DM Sans",sans-serif`;ctx.fillStyle="#5E5E80";ctx.fillText("Total",w/2,h/2+10);ctx.restore();}}]
+    });
+    chartReg.set(id,c);
+    return()=>destroyChart(id);
+  },[data]);
+  if(!total) return <div className="ch-empty">Sem dados</div>;
+  return (
+    <div className="donut-wrap">
+      <canvas ref={ref} style={{width:110,height:110}}/>
+      <div className="donut-leg">
+        {top.map((item,i)=>(
+          <div key={i} className="donut-row">
+            <span className="donut-dot" style={{background:PALETTE[i%PALETTE.length]}}/>
+            <span className="donut-lbl" title={item.label}>{item.label}</span>
+            <span className="donut-val">{item.value}</span>
           </div>
-          <div class="title-wrap">
-            <h1>PAINEL DE ATENDIMENTOS N3</h1>
-            <p>Acompanhamento semanal de demandas operacionais</p>
-          </div>
-        </div>
-
-        <div class="topbar-right">
-          <div class="icon-actions divider-right" aria-label="Ações rápidas">
-            <button class="icon-btn" id="notifications-btn" type="button" aria-label="Notificações">
-              <span class="badge" id="notifications-count">0</span>
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M14.5 18h-5m8-6v-1a5.5 5.5 0 1 0-11 0v1c0 2-.9 3.4-2 4h15c-1.1-.6-2-2-2-4Z" />
-              </svg>
-            </button>
-
-            <button class="icon-btn" id="filter-btn" type="button" aria-label="Filtrar por sistema">
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
-              </svg>
-            </button>
-
-            <button class="icon-btn" id="export-btn" type="button" aria-label="Exportar base">
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6 3h8l4 4v14H6z" />
-                <path d="M14 3v4h4" />
-                <path d="M8.5 10.5 11 14l2.5-3.5M11 14v6" />
-                <path d="M8 20h6" />
-              </svg>
-            </button>
-
-            <button class="icon-btn" id="summary-btn" type="button" aria-label="Resumo semanal">
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M4 19h16" />
-                <path d="M7 16V9" />
-                <path d="M12 16V5" />
-                <path d="M17 16v-7" />
-              </svg>
-            </button>
-          </div>
-
-          <div class="user-area">
-            <img src="Logo_OPCOM-removebg-preview.png" alt="Admin" class="avatar" />
-            <span><strong>Admin</strong> · OPCOM</span>
-          </div>
-        </div>
-      </header>
-
-      <section class="controls-row">
-        <article class="summary-card">
-          <p>ATENDIMENTOS</p>
-          <h2 id="total-atendimentos">0</h2>
-          <span>Nesta Semana</span>
-        </article>
-
-        <button class="create-btn" id="create-record" type="button">+ Criar registro</button>
-
-        <article class="week-card">
-          <div class="week-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none">
-              <rect x="4" y="5" width="16" height="15" rx="2"></rect>
-              <path d="M8 3v4M16 3v4M4 10h16"></path>
-            </svg>
-          </div>
-
-          <div class="week-content">
-            <p>Semana de</p>
-            <strong id="week-range">10/03/2026 - 14/03/2026</strong>
-          </div>
-
-          <div class="week-nav">
-            <button type="button" id="prev-week" aria-label="Semana anterior">‹</button>
-            <button type="button" id="next-week" aria-label="Próxima semana">›</button>
-          </div>
-        </article>
-      </section>
-
-      <section class="board" id="board"></section>
-    </main>
-
-    <div id="react-animations-root" aria-hidden="true"></div>
-
-    <section class="welcome-popup" id="welcome-popup" aria-hidden="true">
-      <div class="welcome-popup-card">
-        <h2>Boas vindas 👋</h2>
-        <p>Bem-vindo ao Painel de Atendimentos N3.</p>
-        <div class="welcome-progress-track" aria-hidden="true">
-          <span class="welcome-progress-bar" id="welcome-progress-bar"></span>
-        </div>
+        ))}
       </div>
-    </section>
+    </div>
+  );
+}
 
-    <section class="modal" id="record-modal" aria-hidden="true">
-      <form class="modal-card" id="record-form">
-        <h3>Novo registro</h3>
+// ══════════════════════════════════════════════
+// ICON COMPONENT
+// ══════════════════════════════════════════════
+function Ic({n,s=14}) {
+  const p={width:s,height:s,viewBox:"0 0 24 24",stroke:"currentColor",strokeWidth:2.2,strokeLinecap:"round",strokeLinejoin:"round",fill:"none"};
+  const icons={
+    plus:   <svg {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+    prev:   <svg {...p}><polyline points="15 18 9 12 15 6"/></svg>,
+    next:   <svg {...p}><polyline points="9 18 15 12 9 6"/></svg>,
+    x:      <svg {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+    filter: <svg {...p}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
+    dl:     <svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+    bell:   <svg {...p}><path d="M14.5 18h-5m8-6v-1a5.5 5.5 0 1 0-11 0v1c0 2-.9 3.4-2 4h15c-1.1-.6-2-2-2-4Z"/></svg>,
+    chart:  <svg {...p}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
+    edit:   <svg {...p}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+    trash:  <svg {...p}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>,
+    doc:    <svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>,
+    arr:    <svg {...p}><polyline points="9 18 15 12 9 6"/></svg>,
+    save:   <svg {...p}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>,
+    copy:   <svg {...p}><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>,
+    reload: <svg {...p}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>,
+    search: <svg {...p}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+    info:   <svg {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+    cal:    <svg {...p}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+  };
+  return icons[n]||null;
+}
 
-        <label>
-          Incidente
-          <input id="incident-input" required />
-        </label>
-
-        <label>
-          Documento
-          <input id="document-input" required />
-        </label>
-
-        <label>
-          Sistema
-          <input id="system-input" required />
-        </label>
-
-        <label>
-          Observação
-          <textarea
-            id="observation-input"
-            rows="3"
-            placeholder="Detalhes adicionais do atendimento"
-          ></textarea>
-        </label>
-
-        <label>
-          Dia
-          <select id="day-select" required>
-            <option value="" selected disabled>Selecione o dia</option>
-            <option value="SEGUNDA">SEGUNDA</option>
-            <option value="TERÇA">TERÇA</option>
-            <option value="QUARTA">QUARTA</option>
-            <option value="QUINTA">QUINTA</option>
-            <option value="SEXTA">SEXTA</option>
-          </select>
-        </label>
-
-        <div class="modal-actions">
-          <button type="button" id="cancel-record">Cancelar</button>
-          <button type="submit">Salvar</button>
+// ══════════════════════════════════════════════
+// MODAL WRAPPER
+// ══════════════════════════════════════════════
+function Modal({open,onClose,title,sub,icon,ic="sh-icon-a",wide,xl,children,foot}) {
+  useEffect(()=>{
+    if(!open) return;
+    const h=e=>{ if(e.key==="Escape") onClose(); };
+    document.addEventListener("keydown",h);
+    return()=>document.removeEventListener("keydown",h);
+  },[open,onClose]);
+  if(!open) return null;
+  return (
+    <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&onClose()}>
+      <div className={`sheet${wide?" sheet-w":""}${xl?" sheet-xl":""}`} role="dialog" aria-modal="true" aria-label={title}>
+        <div className="sh-head">
+          <div className={`sh-icon ${ic}`}><Ic n={icon} s={15}/></div>
+          <div className="sh-htxt"><h3>{title}</h3>{sub&&<p>{sub}</p>}</div>
+          <button className="sh-close" onClick={onClose} aria-label="Fechar"><Ic n="x" s={14}/></button>
         </div>
-      </form>
-    </section>
-
-    <section class="modal" id="day-records-modal" aria-hidden="true">
-      <div class="modal-card modal-card-wide">
-        <h3 id="day-records-title">Registros do dia</h3>
-        <div id="day-records-list" class="day-records-list"></div>
-        <div class="modal-actions">
-          <button type="button" id="close-day-records">Fechar</button>
-        </div>
+        <div className="sh-body">{children}</div>
+        {foot&&<div className="sh-foot">{foot}</div>}
       </div>
-    </section>
+    </div>
+  );
+}
 
-    <section class="modal" id="notifications-modal" aria-hidden="true">
-      <div class="modal-card modal-card-wide">
-        <h3>Alertas diários de demandas: 12h e 16h</h3>
-        <div id="notifications-list" class="day-records-list"></div>
-        <div class="modal-actions">
-          <button type="button" id="close-notifications">Fechar</button>
+// ══════════════════════════════════════════════
+// DATE PICKER (mini calendário)
+// ══════════════════════════════════════════════
+function DatePicker({value,onChange}) {
+  const [open,setOpen]=useState(false);
+  const [view,setView]=useState(()=>new Date(value.getFullYear(),value.getMonth(),1));
+  const ref=useRef(null);
+
+  useEffect(()=>{ setView(new Date(value.getFullYear(),value.getMonth(),1)); },[value]);
+
+  useEffect(()=>{
+    if(!open) return;
+    const h=e=>{ if(ref.current&&!ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown",h);
+    return()=>document.removeEventListener("mousedown",h);
+  },[open]);
+
+  const y=view.getFullYear(), m=view.getMonth();
+  const startOffset=new Date(y,m,1).getDay();           // 0 = domingo
+  const daysInMonth=new Date(y,m+1,0).getDate();
+  const cells=[];
+  for(let i=0;i<startOffset;i++) cells.push(null);
+  for(let d=1;d<=daysInMonth;d++) cells.push(new Date(y,m,d));
+
+  const selISO=toISO(value);
+  const weekday=value.toLocaleDateString("pt-BR",{weekday:"long"});
+
+  const pick=d=>{ onChange(d); setOpen(false); };
+
+  return (
+    <div className="dp" ref={ref}>
+      <button type="button" className={`dp-trigger${open?" open":""}`} onClick={()=>setOpen(o=>!o)} aria-haspopup="dialog" aria-expanded={open}>
+        <Ic n="cal" s={13}/>
+        <span className="dp-trigger-date">{fmtDate(value)}</span>
+        <span className="dp-trigger-wd">{weekday}</span>
+        <span className="dp-trigger-chev"><Ic n={open?"x":"next"} s={11}/></span>
+      </button>
+
+      {open&&(
+        <div className="dp-cal" role="dialog" aria-label="Selecionar data">
+          <div className="dp-head">
+            <button type="button" className="dp-nav" onClick={()=>setView(new Date(y,m-1,1))} aria-label="Mês anterior"><Ic n="prev" s={13}/></button>
+            <span className="dp-title" key={`t-${y}-${m}`}>{MONTHS_F[m]} <em>{y}</em></span>
+            <button type="button" className="dp-nav" onClick={()=>setView(new Date(y,m+1,1))} aria-label="Próximo mês"><Ic n="next" s={13}/></button>
+          </div>
+          <div className="dp-grid dp-wds">
+            {["D","S","T","Q","Q","S","S"].map((w,i)=><span key={i} className="dp-wd">{w}</span>)}
+          </div>
+          <div className="dp-grid" key={`g-${y}-${m}`}>
+            {cells.map((d,i)=>{
+              if(!d) return <span key={i} className="dp-day blank"/>;
+              const wknd=isWeekend(d);
+              const cls=["dp-day", wknd?"off":"", isToday(d)?"today":"", toISO(d)===selISO?"sel":""].filter(Boolean).join(" ");
+              return (
+                <button key={i} type="button" className={cls} disabled={wknd}
+                  style={{animationDelay:`${i*9}ms`}}
+                  title={wknd?"O painel cobre apenas dias úteis (seg–sex)":""}
+                  onClick={()=>pick(d)}>
+                  {d.getDate()}
+                </button>
+              );
+            })}
+          </div>
+          <div className="dp-foot">
+            <button type="button" className="dp-quick" onClick={()=>pick(nextWorkday(new Date()))}>Hoje</button>
+            <span className="dp-hint">Fins de semana desativados</span>
+          </div>
         </div>
-      </div>
-    </section>
+      )}
+    </div>
+  );
+}
 
-    <section class="modal" id="analytics-modal" aria-hidden="true">
-      <div class="modal-card modal-card-wide analytics-modal-card">
-        <header class="analytics-header">
+// ══════════════════════════════════════════════
+// ENTRY CARD (memo: não re-renderiza à toa)
+// ══════════════════════════════════════════════
+const EntryCard = memo(function EntryCard({entry,idx,onOpen,onEdit,onDelete}) {
+  return (
+    <div className="ecard" style={{animationDelay:`${Math.min(idx*40,180)}ms`}}
+      role="button" tabIndex={0}
+      onClick={()=>onOpen(entry)}
+      onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();onOpen(entry);}}}
+    >
+      <div className="ecard-top">
+        <span className="ecard-pill">{entry.system||"—"}</span>
+        <span className="ecard-id">#{entry.id_primary}</span>
+      </div>
+      <h4 className="ecard-title">{entry.title}</h4>
+      <div className="ecard-bot">
+        <span className="ecard-docs">{entry.documents.length} doc{entry.documents.length!==1?"s":""}</span>
+        <div className="ecard-actions" onClick={e=>e.stopPropagation()}>
+          <button className="ecard-act-btn" title="Editar" onClick={e=>{e.stopPropagation();onEdit(entry);}}><Ic n="edit" s={11}/></button>
+          <button className="ecard-act-btn del" title="Excluir" onClick={e=>{e.stopPropagation();onDelete(entry);}}><Ic n="trash" s={11}/></button>
+        </div>
+        <span className="ecard-arr"><Ic n="arr" s={11}/></span>
+      </div>
+    </div>
+  );
+});
+
+// ══════════════════════════════════════════════
+// DAY COLUMN (memo)
+// ══════════════════════════════════════════════
+const DayCol = memo(function DayCol({dayData,dateObj,today,search,filter,onOpen,onEdit,onDelete}) {
+  const entries = useMemo(()=>{
+    let e = dayData.entries;
+    if(filter!=="ALL") e=e.filter(x=>x.system===filter);
+    if(search) {
+      const q=search.toLowerCase();
+      e=e.filter(x=>x.title.toLowerCase().includes(q)||x.system.toLowerCase().includes(q)||x.documents.some(d=>d.toLowerCase().includes(q)));
+    }
+    return e;
+  },[dayData.entries,filter,search]);
+
+  const docCount = entries.reduce((a,e)=>a+e.documents.length,0);
+  const handleOpen=useCallback(entry=>onOpen(dayData.day,fmtShort(dateObj),entry),[onOpen,dayData.day,dateObj]);
+
+  return (
+    <div className={`day-col${today?" today":""}`}>
+      <div className="day-head">
+        <div className="day-name">{dayData.day}{today&&<span className="day-today-chip">Hoje</span>}</div>
+        <div className="day-date-row">
           <div>
-            <h3>Resumo semanal</h3>
-            <p id="analytics-week-range">-</p>
+            <div className="day-date-num">{String(dateObj.getDate()).padStart(2,"0")}</div>
+            <div className="day-date-mon">{MONTHS[dateObj.getMonth()]}</div>
           </div>
-
-          <div class="analytics-nav">
-            <button type="button" id="analytics-prev-week" aria-label="Semana anterior">‹</button>
-            <button type="button" id="analytics-next-week" aria-label="Próxima semana">›</button>
-          </div>
-        </header>
-
-        <div class="analytics-screen">
-          <section class="analytics-kpis">
-            <article class="kpi-card">
-              <small>Total atendimentos</small>
-              <strong id="kpi-total-atendimentos">0</strong>
-            </article>
-
-            <article class="kpi-card">
-              <small>Média / dia</small>
-              <strong id="kpi-media-dia">0</strong>
-            </article>
-
-            <article class="kpi-card">
-              <small>Sistema mais crítico</small>
-              <strong id="kpi-sistema-critico">-</strong>
-            </article>
-
-            <article class="kpi-card">
-              <small>Comparado à semana anterior</small>
-              <strong id="kpi-variacao-semanal">0%</strong>
-            </article>
-          </section>
-
-          <section class="analytics-grid-main">
-            <article class="analytics-panel">
-              <h4>Demanda por dia</h4>
-              <div id="chart-demand-per-day" class="chart-area"></div>
-            </article>
-
-            <article class="analytics-panel">
-              <h4>Top casos</h4>
-              <div id="chart-top-cases" class="chart-area"></div>
-            </article>
-          </section>
-
-          <section class="analytics-grid-bottom">
-            <article class="analytics-panel">
-              <h4>Demanda por dia (ranking)</h4>
-              <div id="chart-demand-ranking" class="chart-area"></div>
-            </article>
-
-            <article class="analytics-panel">
-              <h4>Top sistemas</h4>
-              <div id="chart-top-systems" class="chart-area"></div>
-            </article>
-
-            <article class="analytics-panel">
-              <h4>Problemas por dia</h4>
-              <div id="chart-problems-by-day" class="chart-area"></div>
-            </article>
-          </section>
-        </div>
-
-        <div class="modal-actions">
-          <button type="button" id="close-analytics">Fechar</button>
+          <span className={`day-badge${entries.length>0?" has":""}`}>{entries.length}</span>
         </div>
       </div>
-    </section>
 
-    <section class="modal" id="documents-modal" aria-hidden="true">
-      <form class="modal-card" id="documents-form">
-        <h3>Adicionar documentos</h3>
-        <p class="documents-modal-help">Separe vários documentos por vírgula.</p>
-
-        <label>
-          Documentos
-          <textarea
-            id="documents-input"
-            rows="4"
-            placeholder="Ex.: 86099578536, 12345678900"
-          ></textarea>
-        </label>
-
-        <div class="modal-actions">
-          <button type="button" id="cancel-documents">Cancelar</button>
-          <button type="submit">Adicionar</button>
-        </div>
-      </form>
-    </section>
-
-    <section class="modal" id="edit-entry-modal" aria-hidden="true">
-      <form class="modal-card" id="edit-entry-form">
-        <h3>Editar demanda</h3>
-
-        <label>
-          Incidente
-          <input id="edit-incident-input" required />
-        </label>
-
-        <label>
-          Sistema
-          <input id="edit-system-input" required />
-        </label>
-
-        <label>
-          Observação
-          <textarea
-            id="edit-observation-input"
-            rows="3"
-            placeholder="Detalhes da demanda"
-          ></textarea>
-        </label>
-
-        <div class="modal-actions">
-          <button type="button" id="cancel-edit-entry">Cancelar</button>
-          <button type="submit">Salvar alterações</button>
-        </div>
-      </form>
-    </section>
-
-    <section class="modal" id="filter-modal" aria-hidden="true">
-      <form class="modal-card" id="filter-form">
-        <h3>Filtrar demandas por sistema</h3>
-
-        <label>
-          Sistema
-          <select id="filter-system-select"></select>
-        </label>
-
-        <div class="modal-actions">
-          <button type="button" id="clear-filter">Limpar</button>
-          <button type="button" id="cancel-filter">Cancelar</button>
-          <button type="submit">Aplicar</button>
-        </div>
-      </form>
-    </section>
-
-    <template id="day-template">
-      <article class="day-column">
-        <header class="day-header">
-          <h3></h3>
-          <span></span>
-        </header>
-        <div class="entries"></div>
-        <button class="expand-day-btn" type="button" hidden>Ver todos</button>
-      </article>
-    </template>
-
-    <template id="entry-template">
-      <div class="entry-card" role="button" tabindex="0" aria-label="Ver detalhes do registro">
-        <h4></h4>
-        <span class="system-pill"></span>
-        <small></small>
+      <div className="day-entries">
+        {entries.length===0
+          ? <div className="day-empty">{search||filter!=="ALL"?"Nenhum resultado":"—"}</div>
+          : entries.map((entry,i)=>(
+              <EntryCard key={entry.id_primary} entry={entry} idx={i}
+                onOpen={handleOpen} onEdit={onEdit} onDelete={onDelete}/>
+            ))
+        }
       </div>
-    </template>
 
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="react-animations.js"></script>
-    <script src="script.js"></script>
-  </body>
+      {entries.length>0&&(
+        <div className="day-foot">
+          <span>{entries.length} demanda{entries.length!==1?"s":""}</span>
+          <span>{docCount} doc{docCount!==1?"s":""}</span>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ══════════════════════════════════════════════
+// CREATE MODAL — agora com mini calendário
+// ══════════════════════════════════════════════
+function CreateModal({open,onClose,onSave,systems}) {
+  const [f,setF]=useState({incident:"",document:"",system:"",observation:"",date:nextWorkday(new Date())});
+  const [busy,setBusy]=useState(false);
+  useEffect(()=>{ if(open) setF({incident:"",document:"",system:"",observation:"",date:nextWorkday(new Date())}); },[open]);
+  const upd=k=>e=>setF(p=>({...p,[k]:e.target.value}));
+  const handle=async e=>{
+    e.preventDefault();
+    if(busy||!f.incident.trim()||!f.document.trim()||!f.system.trim()) return;
+    setBusy(true);
+    try{ await onSave(f); } finally{ setBusy(false); }
+  };
+  return (
+    <Modal open={open} onClose={onClose} title="Novo Registro" sub="Preencha os dados do atendimento N3" icon="plus" ic="sh-icon-a"
+      foot={<><button className="btn btn-gh" onClick={onClose} disabled={busy}>Cancelar</button><button className="btn btn-a" onClick={handle} disabled={busy}><Ic n="save" s={12}/>{busy?"Salvando…":"Salvar Registro"}</button></>}>
+      <form onSubmit={handle} style={{display:"contents"}}>
+        <div className="field-row">
+          <label className="field"><span className="lbl">Incidente <em>*</em></span><input className="inp" value={f.incident} onChange={upd("incident")} placeholder="Ex.: INC-2024-001" required autoFocus/></label>
+          <label className="field"><span className="lbl">Documento <em>*</em></span><input className="inp" value={f.document} onChange={upd("document")} placeholder="CPF ou nº do documento" required/></label>
+        </div>
+        <label className="field"><span className="lbl">Sistema <em>*</em></span>
+          <input className="inp" value={f.system} onChange={upd("system")} placeholder="Ex.: SAP, ERP, Portal..." required list="sys-dl"/>
+          <datalist id="sys-dl">{systems.map(s=><option key={s} value={s}/>)}</datalist>
+        </label>
+        <div className="field">
+          <span className="lbl">Data do atendimento <em>*</em></span>
+          <DatePicker value={f.date} onChange={d=>setF(p=>({...p,date:d}))}/>
+        </div>
+        <label className="field"><span className="lbl">Observação</span><textarea className="ta" value={f.observation} onChange={upd("observation")} placeholder="Detalhes adicionais..." rows={3}/></label>
+      </form>
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════════
+// DETAIL MODAL
+// ══════════════════════════════════════════════
+function DetailModal({open,onClose,entry,dayName,dateLabel,onDelete,onEdit,onAddDoc,copyFn}) {
+  if(!entry) return null;
+  return (
+    <Modal open={open} onClose={onClose} title={dayName} sub={dateLabel} icon="info" ic="sh-icon-a" wide>
+      <div className="det-grid">
+        <div className="det-cell"><span className="det-lbl">Incidente</span><div className="det-val">{entry.title}</div></div>
+        <div className="det-cell"><span className="det-lbl">Sistema</span><div className="det-val">{entry.system}</div></div>
+        <div className="det-cell"><span className="det-lbl">ID no Banco</span><div className="det-val mono">#{entry.id_primary}</div></div>
+        <div className="det-cell"><span className="det-lbl">Documentos</span><div className="det-val">{entry.documents.length} registro(s)</div></div>
+      </div>
+
+      {entry.observation&&(
+        <div className="det-obs">
+          <span className="det-lbl">Observação</span>
+          <p>{entry.observation}</p>
+        </div>
+      )}
+
+      <div className="det-docs">
+        <div className="det-docs-head">
+          <span>Documentos Vinculados</span>
+          <span style={{fontFamily:"var(--ff-m)",color:"var(--a)"}}>{entry.documents.length}</span>
+        </div>
+        <div className="det-docs-list">
+          {entry.documents.map((doc,i)=>(
+            <div key={i} className="det-doc">
+              <span className="det-dot"/>
+              {doc}
+              <span className="det-doc-copy" title="Copiar" onClick={()=>copyFn(doc)}><Ic n="copy" s={11}/></span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="det-actions">
+        <button className="btn btn-gh" onClick={onAddDoc}><Ic n="doc" s={12}/>+ Documento</button>
+        <button className="btn btn-b" onClick={onEdit}><Ic n="edit" s={12}/>Editar</button>
+        <button className="btn btn-r" onClick={onDelete}><Ic n="trash" s={12}/>Excluir</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════════
+// EDIT MODAL
+// ══════════════════════════════════════════════
+function EditModal({open,onClose,entry,onSave}) {
+  const [f,setF]=useState({incident:"",system:"",observation:""});
+  const [busy,setBusy]=useState(false);
+  useEffect(()=>{if(open&&entry)setF({incident:entry.title||"",system:entry.system||"",observation:entry.observation||""});},[open,entry]);
+  const upd=k=>e=>setF(p=>({...p,[k]:e.target.value}));
+  const handle=async e=>{
+    e.preventDefault();
+    if(busy||!f.incident.trim()||!f.system.trim()) return;
+    setBusy(true);
+    try{await onSave(f);}finally{setBusy(false);}
+  };
+  return (
+    <Modal open={open} onClose={onClose} title="Editar Demanda" sub={entry?`#${entry.id_primary} · alterações são gravadas no banco`:""} icon="edit" ic="sh-icon-b"
+      foot={<><button className="btn btn-gh" onClick={onClose} disabled={busy}>Cancelar</button><button className="btn btn-b" onClick={handle} disabled={busy}><Ic n="save" s={12}/>{busy?"Salvando…":"Salvar Alterações"}</button></>}>
+      <form onSubmit={handle} style={{display:"contents"}}>
+        <label className="field"><span className="lbl">Incidente <em>*</em></span><input className="inp" value={f.incident} onChange={upd("incident")} required autoFocus/></label>
+        <label className="field"><span className="lbl">Sistema <em>*</em></span><input className="inp" value={f.system} onChange={upd("system")} required/></label>
+        <label className="field"><span className="lbl">Observação</span><textarea className="ta" value={f.observation} onChange={upd("observation")} rows={3}/></label>
+      </form>
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════════
+// ADD DOC MODAL — agora persiste no banco
+// ══════════════════════════════════════════════
+function AddDocModal({open,onClose,onAdd}) {
+  const [val,setVal]=useState("");
+  const [busy,setBusy]=useState(false);
+  useEffect(()=>{if(open){setVal("");setBusy(false);}},[open]);
+  const handle=async e=>{
+    e.preventDefault();
+    const docs=val.split(/[,;]+/).map(s=>s.trim()).filter(Boolean);
+    if(!docs.length||busy) return;
+    setBusy(true);
+    try{ await onAdd(docs); onClose(); } finally{ setBusy(false); }
+  };
+  return (
+    <Modal open={open} onClose={onClose} title="Adicionar Documentos" sub="Separe múltiplos por vírgula — gravado no banco" icon="doc" ic="sh-icon-g"
+      foot={<><button className="btn btn-gh" onClick={onClose} disabled={busy}>Cancelar</button><button className="btn btn-g" onClick={handle} disabled={busy}><Ic n="plus" s={12}/>{busy?"Salvando…":"Adicionar"}</button></>}>
+      <form onSubmit={handle} style={{display:"contents"}}>
+        <label className="field"><span className="lbl">Documentos</span><textarea className="ta" value={val} onChange={e=>setVal(e.target.value)} placeholder="Ex.: 86099578536, 12345678900" rows={4} autoFocus/></label>
+      </form>
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════════
+// FILTER MODAL
+// ══════════════════════════════════════════════
+function FilterModal({open,onClose,systems,active,onApply}) {
+  const [sel,setSel]=useState("ALL");
+  useEffect(()=>{if(open)setSel(active);},[open,active]);
+  return (
+    <Modal open={open} onClose={onClose} title="Filtrar por Sistema" sub="Exibe apenas as demandas do sistema selecionado" icon="filter" ic="sh-icon-v"
+      foot={<><button className="btn btn-gh" onClick={()=>{onApply("ALL");onClose();}}>Limpar filtro</button><button className="btn btn-a" onClick={()=>{onApply(sel);onClose();}}>Aplicar</button></>}>
+      <label className="field">
+        <span className="lbl">Sistema</span>
+        <select className="sel" value={sel} onChange={e=>setSel(e.target.value)}>
+          <option value="ALL">Todos os sistemas</option>
+          {systems.map(s=><option key={s} value={s}>{s}</option>)}
+        </select>
+      </label>
+      {systems.length===0&&<p style={{fontSize:".74rem",color:"var(--t2)"}}>Nenhum sistema cadastrado nesta semana.</p>}
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════════
+// NOTIFICATIONS MODAL
+// ══════════════════════════════════════════════
+function NotifsModal({open,onClose,notifs}) {
+  const now=new Date();
+  const WINS=[{id:"m",label:"12:00",h0:0,h1:12},{id:"a",label:"16:00",h0:12,h1:16}];
+  const items=WINS.map(w=>({...w,count:notifs.filter(n=>{const d=new Date(n.createdAt);if(isNaN(d))return false;return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth()&&d.getDate()===now.getDate()&&d.getHours()>=w.h0&&d.getHours()<w.h1;}).length}));
+  const total=items.reduce((a,i)=>a+i.count,0);
+  return (
+    <Modal open={open} onClose={onClose} title="Alertas Diários" sub="Monitoramento automático: 12h e 16h" icon="bell" ic="sh-icon-a" wide>
+      <div className="section-label">Hoje — {now.toLocaleDateString("pt-BR",{day:"2-digit",month:"long"})}</div>
+      {total===0
+        ? <div className="notif-card" style={{opacity:.7}}><div className="notif-icon"><Ic n="bell" s={14}/></div><div><div className="notif-t">Sem alertas hoje</div><div className="notif-s">Nenhuma demanda criada nas janelas de 12h e 16h.</div></div></div>
+        : items.map(w=>(
+            <div key={w.id} className="notif-card">
+              <div className="notif-icon"><Ic n="bell" s={14}/></div>
+              <div>
+                <div className="notif-t">Alerta das {w.label}</div>
+                <div className="notif-s">Janela {String(w.h0).padStart(2,"0")}:00 → {String(w.h1).padStart(2,"0")}:00</div>
+                <div className="notif-s">Demandas: <span className="notif-big">{w.count}</span></div>
+              </div>
+            </div>
+          ))
+      }
+      <div className="divider"/>
+      <div className="section-label">Histórico desta semana — {notifs.length} total</div>
+      <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:160,overflowY:"auto"}}>
+        {notifs.slice(-10).reverse().map((n,i)=>(
+          <div key={i} style={{display:"flex",gap:8,padding:"6px 10px",background:"var(--b0)",borderRadius:"var(--r1)",fontSize:".72rem",color:"var(--t1)"}}>
+            <span style={{color:"var(--t2)",fontFamily:"var(--ff-m)",flexShrink:0}}>{n.day}</span>
+            <span style={{color:"var(--t0)",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.incident}</span>
+            <span style={{marginLeft:"auto",color:"var(--t3)",flexShrink:0}}>{n.system}</span>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════════
+// ANALYTICS MODAL
+// ══════════════════════════════════════════════
+function AnalyticsModal({open,onClose,weekStore,initMonday}) {
+  const [monday,setMonday]=useState(initMonday);
+  useEffect(()=>{if(open)setMonday(new Date(initMonday));},[open]);
+
+  const getWk   = m => weekStore.get(wkKey(m))||buildEmptyWeek();
+  const weekData = getWk(monday);
+  const prevData = getWk(addDays(monday,-7));
+
+  const total     = weekData.reduce((a,d)=>a+d.entries.length,0);
+  const totalPrev = prevData.reduce((a,d)=>a+d.entries.length,0);
+  const totalDocs = weekData.reduce((a,d)=>a+d.entries.reduce((b,e)=>b+e.documents.length,0),0);
+  const avg       = (total/DAYS.length).toFixed(1);
+  const diff      = totalPrev?Math.round(((total-totalPrev)/totalPrev)*100):null;
+  const diffStr   = diff==null?"—":`${diff>0?"+":""}${diff}%`;
+  const diffCls   = diff==null?"":"trend-"+(diff>0?"up":diff<0?"dn":"eq");
+
+  const incMap=new Map(),sysMap=new Map();
+  weekData.forEach(d=>d.entries.forEach(e=>{
+    incMap.set(e.title,(incMap.get(e.title)||0)+1);
+    sysMap.set(e.system,(sysMap.get(e.system)||0)+1);
+  }));
+  const top=(m,n=5)=>[...m.entries()].sort((a,b)=>b[1]-a[1]).slice(0,n).map(([l,v])=>({label:l,value:v}));
+  const topSys=top(sysMap,6);
+  const topInc=top(incMap,5);
+  const byDay=DAYS.map(day=>({label:day,value:weekData.find(d=>d.day===day)?.entries.length||0}));
+  const byDayDocs=DAYS.map(day=>({label:day,value:(weekData.find(d=>d.day===day)?.entries||[]).reduce((a,e)=>a+e.documents.length,0)}));
+  const rankDay=[...byDay].sort((a,b)=>b.value-a.value);
+  const sysTotal=total||1;
+
+  return (
+    <Modal open={open} onClose={onClose} title="Resumo Semanal" sub={`${fmtDate(monday)} → ${fmtDate(addDays(monday,4))}`} icon="chart" ic="sh-icon-a" xl>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:".62rem",color:"var(--t2)",textTransform:"uppercase",letterSpacing:".08em"}}>Selecione a semana para visualizar</span>
+        <div className="an-nav">
+          <button onClick={()=>setMonday(addDays(monday,-7))}><Ic n="prev" s={12}/></button>
+          <button onClick={()=>setMonday(addDays(monday,7))}><Ic n="next" s={12}/></button>
+        </div>
+      </div>
+
+      <div className="kpi-row">
+        {[
+          {lbl:"Total Atendimentos",val:String(total)},
+          {lbl:"Total Documentos",val:String(totalDocs)},
+          {lbl:"Média / Dia",val:avg},
+          {lbl:"Sistema Crítico",val:topSys[0]?.label||"—",sm:true},
+        ].map((k,i)=>(
+          <div key={i} className="kpi">
+            <div className="kpi-lbl">{k.lbl}</div>
+            <div className={`kpi-val${k.sm?" sm":""}`}>{k.val}</div>
+            {i===0&&diff!==null&&<span className={`trend-chip ${diffCls}`}>{diffStr} vs sem anterior</span>}
+          </div>
+        ))}
+      </div>
+
+      <div className="charts-grid">
+        <div className="ch-panel ch-panel-w">
+          <div className="ch-title">Demandas por Dia</div>
+          <BarChart id="an-day" data={byDay}/>
+        </div>
+        <div className="ch-panel">
+          <div className="ch-title">Top Incidentes</div>
+          <div className="ch-area">
+            {topInc.length?(<div className="rank-list">{topInc.map((item,i)=><div key={i} className="rank-row"><span className="rank-i">{i+1}</span><span className="rank-lbl" title={item.label}>{item.label}</span><span className="rank-val">{item.value}</span></div>)}</div>):<div className="ch-empty">Sem dados</div>}
+          </div>
+        </div>
+        <div className="ch-panel">
+          <div className="ch-title">Distribuição por Sistema</div>
+          <DonutChart id="an-sys" data={topSys}/>
+        </div>
+        <div className="ch-panel">
+          <div className="ch-title">Ranking de Dias</div>
+          <div className="ch-area">
+            {rankDay.some(d=>d.value>0)?(<div className="mini-bars">{rankDay.map((d,i)=>{const max=Math.max(...rankDay.map(x=>x.value),1);return(<div key={i} className="mbar"><span className="mbar-lbl">{d.label}</span><div className="mbar-track"><div className="mbar-fill" style={{width:`${(d.value/max)*100}%`}}/></div><span className="mbar-val">{d.value}</span></div>);})}</div>):<div className="ch-empty">Sem dados</div>}
+          </div>
+        </div>
+        <div className="ch-panel ch-panel-w">
+          <div className="ch-title">Documentos por Dia</div>
+          <BarChart id="an-docs" data={byDayDocs}/>
+        </div>
+
+        <div className="ch-panel">
+          <div className="ch-title">Breakdown por Sistema</div>
+          <div className="ch-area">
+            {topSys.length?(<div className="sys-table">{topSys.map((s,i)=><div key={i} className="sys-row"><span className="sys-name">{s.label}</span><div className="sys-pills"><span className="sys-pill-count">{s.value}</span><span className="sys-pill-pct">{Math.round((s.value/sysTotal)*100)}%</span></div></div>)}</div>):<div className="ch-empty">Sem dados</div>}
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════════
+// TOASTS
+// ══════════════════════════════════════════════
+function Toasts({toasts}) {
+  return (
+    <div className="toast-wrap">
+      {toasts.map(t=>(
+        <div key={t.id} className={`toast toast-${t.type}`}>
+          <div className="toast-dot"/>
+          <div><div className="toast-m">{t.msg}</div>{t.sub&&<div className="toast-sub">{t.sub}</div>}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════
+// HEADER
+// ══════════════════════════════════════════════
+function Header({monday,total,filter,search,onSearch,notifCount,onPrev,onNext,onToday,onNew,onFilter,onExport,onNotifs,onAnalytics,lastUpdate}) {
+  const friday=addDays(monday,4);
+  const fmt=d=>`${String(d.getDate()).padStart(2,"0")} ${MONTHS[d.getMonth()]}`;
+  const onCurrentWeek = wkKey(monday)===wkKey(getMonday(new Date()));
+
+  return (
+    <header className="hdr">
+      <img src="Logo_png-removebg-preview.png" alt="RedeFlex" className="hdr-logo" onError={e=>{e.target.style.display="none";}}/>
+      <div className="hdr-vsep"/>
+      <span className="hdr-title">Painel de Atendimentos</span>
+      <span className="hdr-badge">N3</span>
+      <div className="hdr-vsep"/>
+
+      <div className="wk-nav">
+        <button className="wk-arr" onClick={onPrev} aria-label="Semana anterior"><Ic n="prev" s={13}/></button>
+        <button className="wk-lbl" onClick={onToday} title={onCurrentWeek?"Semana atual":"Voltar para a semana atual"}>
+          <span className="wk-lbl-top">{onCurrentWeek?"Semana atual":"Semana"}</span>
+          <span className="wk-lbl-range">{fmt(monday)} – {fmt(friday)}</span>
+        </button>
+        <button className="wk-arr" onClick={onNext} aria-label="Próxima semana"><Ic n="next" s={13}/></button>
+      </div>
+
+      <div className="hdr-search">
+        <Ic n="search" s={12}/>
+        <input value={search} onChange={e=>onSearch(e.target.value)} placeholder="Buscar incidente, sistema…" aria-label="Buscar demandas"/>
+        {search&&<span style={{cursor:"pointer",color:"var(--t2)",fontSize:".7rem"}} onClick={()=>onSearch("")}>×</span>}
+      </div>
+
+      <div className="hdr-sp"/>
+
+      <div className="hdr-total" title={lastUpdate?"Sincronizado às "+lastUpdate:""}>
+        <div className="hdr-total-n">{total}</div>
+        <div className="hdr-total-lbl">atendimentos<br/>esta semana</div>
+      </div>
+
+      <div className="hdr-vsep"/>
+
+      <button className={`hbtn${filter!=="ALL"?" active":""}`} onClick={onFilter}><Ic n="filter" s={13}/>{filter==="ALL"?"Filtrar":filter}</button>
+      <button className="hbtn" onClick={onAnalytics}><Ic n="chart" s={13}/>Analytics</button>
+      <button className="hbtn hbtn-icon" onClick={onNotifs} style={{position:"relative"}} title="Alertas">
+        <Ic n="bell" s={13}/>
+        {notifCount>0&&<span className="notif-dot"/>}
+      </button>
+      <button className="hbtn hbtn-icon" onClick={onExport} title="Exportar base"><Ic n="dl" s={13}/></button>
+
+      <div className="hdr-vsep"/>
+      <button className="hbtn hbtn-primary" onClick={onNew}><Ic n="plus" s={13}/>Novo Registro</button>
+    </header>
+  );
+}
+
+// ══════════════════════════════════════════════
+// APP ROOT
+// ══════════════════════════════════════════════
+function App() {
+  const [weekStore,setWeekStore]=useState(new Map());
+  const [notifs,setNotifs]=useState([]);
+  const [totalDB,setTotalDB]=useState(0);
+  const [monday,setMonday]=useState(getMonday(new Date()));
+  const [filter,setFilter]=useState("ALL");
+  const [search,setSearch]=useState("");
+  const dSearch=useDeferredValue(search);          // busca sem travar a digitação
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState(null);
+  const [lastUpdate,setLastUpdate]=useState(null);
+
+  // Modals
+  const [mCreate,setMCreate]=useState(false);
+  const [mDetail,setMDetail]=useState(null);
+  const [mEdit,setMEdit]=useState(null);
+  const [mDoc,setMDoc]=useState(null);
+  const [mFilter,setMFilter]=useState(false);
+  const [mNotifs,setMNotifs]=useState(false);
+  const [mAnalytics,setMAnalytics]=useState(false);
+
+  const {toasts,add:addToast}=useToast();
+  const copy=useCopyToClipboard();
+  const copyFn=useCallback(t=>copy(t,(type,msg,sub)=>addToast(type,msg,sub)),[copy,addToast]);
+
+  // ── Sincronização completa (inicial + background) ──
+  const loadData=useCallback(async(quiet=false)=>{
+    if(!quiet) setLoading(true);
+    try {
+      const rows=await dbLoad();
+      const {store,notifs:ns,total}=rowsToStore(rows);
+      setWeekStore(store); setNotifs(ns); setTotalDB(total);
+      setError(null);
+      setLastUpdate(new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}));
+    } catch(e){
+      setError(e.message);
+      if(quiet) addToast("e","Falha ao sincronizar",e.message.slice(0,60));
+    }
+    finally{ setLoading(false); }
+  },[addToast]);
+
+  useEffect(()=>{ loadData(); },[]);
+
+  // Auto-refresh (pausa quando a aba está oculta; sincroniza ao voltar)
+  useEffect(()=>{
+    const id=setInterval(()=>{ if(!document.hidden) loadData(true); },CFG.refresh);
+    const vis=()=>{ if(!document.hidden) loadData(true); };
+    document.addEventListener("visibilitychange",vis);
+    return()=>{ clearInterval(id); document.removeEventListener("visibilitychange",vis); };
+  },[loadData]);
+
+  // Atalhos de teclado
+  useEffect(()=>{
+    const h=e=>{
+      if(document.querySelector(".overlay")) return;
+      const typing=e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA";
+      if(e.key==="n"&&!e.ctrlKey&&!e.metaKey&&!typing) setMCreate(true);
+      if(e.key==="ArrowLeft"&&!e.ctrlKey&&!typing) setMonday(prev=>addDays(prev,-7));
+      if(e.key==="ArrowRight"&&!e.ctrlKey&&!typing) setMonday(prev=>addDays(prev,7));
+      if(e.key==="t"&&!typing) setMonday(getMonday(new Date()));
+      if(e.key==="r"&&!typing) loadData(true);
+    };
+    window.addEventListener("keydown",h);
+    return()=>window.removeEventListener("keydown",h);
+  },[loadData]);
+
+  // ── Derivados ──
+  const weekData=useMemo(()=>weekStore.get(wkKey(monday))||buildEmptyWeek(),[weekStore,monday]);
+  const weekEntries=useMemo(()=>weekData.reduce((a,d)=>a+d.entries.length,0),[weekData]);
+  const allSystems=useMemo(()=>{const s=new Set();weekStore.forEach(w=>w.forEach(d=>d.entries.forEach(e=>e.system&&s.add(e.system))));return[...s].sort();},[weekStore]);
+  const weekSystems=useMemo(()=>{const s=new Set();weekData.forEach(d=>d.entries.forEach(e=>e.system&&s.add(e.system)));return[...s].sort();},[weekData]);
+  const notifCount=useMemo(()=>{const n=new Date();return notifs.filter(x=>{const d=new Date(x.createdAt);return!isNaN(d)&&d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()&&d.getDate()===n.getDate();}).length;},[notifs]);
+
+  // ── Handlers (mutação local imediata, sem refetch completo) ──
+  const handleSave=useCallback(async f=>{
+    try {
+      const nextId=await dbNextId();
+      const payload={id_primary:nextId,data:toISO(f.date),incidente:f.incident.trim(),documento:f.document.trim(),sistema:f.system.trim(),observacao:f.observation.trim()};
+      const row=await dbInsert(payload);
+      setWeekStore(prev=>storeInsertRow(new Map(prev),row));
+      setNotifs(p=>[...p,{incident:row.incidente,document:row.documento,system:row.sistema,day:DAYS[parseDateLocal(row.data).getDay()-1],createdAt:new Date().toISOString()}]);
+      setTotalDB(t=>t+1);
+      setMonday(getMonday(f.date));         // navega para a semana do registro
+      setMCreate(false);
+      addToast("s","Registro salvo",`${row.incidente} · ${fmtDate(f.date)}`);
+    } catch(e){
+      swalError("Erro ao salvar",e.message);
+      throw e;
+    }
+  },[addToast]);
+
+  const handleDelete=useCallback(async entry=>{
+    const {isConfirmed}=await Swal.fire({title:"Excluir esta demanda?",html:`<strong>${entry.title}</strong><br><small style="color:#A0A0BE">Registro #${entry.id_primary} será removido do banco. Esta ação não pode ser desfeita.</small>`,icon:"warning",showCancelButton:true,confirmButtonText:"Excluir",cancelButtonText:"Cancelar",...SWAL_T});
+    if(!isConfirmed) return;
+    try{
+      await dbDelete(entry.id_primary);
+      setWeekStore(prev=>storeRemoveId(new Map(prev),entry.id_primary));
+      setTotalDB(t=>Math.max(0,t-1));
+      setMDetail(null);
+      addToast("s","Demanda excluída do banco",entry.title);
+    } catch(e){ swalError("Erro ao excluir",e.message); }
+  },[addToast]);
+
+  const handleEdit=useCallback(async f=>{
+    try{
+      const patch={incidente:f.incident.trim(),sistema:f.system.trim(),observacao:f.observation.trim()};
+      await dbUpdate(mEdit.id_primary,patch);
+      setWeekStore(prev=>storePatchId(new Map(prev),mEdit.id_primary,e=>({...e,title:patch.incidente,system:patch.sistema,observation:patch.observacao})));
+      setMEdit(null); setMDetail(null);
+      addToast("s","Demanda atualizada no banco",patch.incidente);
+    } catch(e){ swalError("Erro ao editar",e.message); }
+  },[mEdit,addToast]);
+
+  const handleAddDoc=useCallback(async docs=>{
+    if(!mDoc) return;
+    try{
+      const current=mDoc.documents.filter(d=>d!=="Sem documento");
+      const merged=[...current,...docs];
+      await dbUpdate(mDoc.id_primary,{documento:merged.join(", ")});
+      setWeekStore(prev=>storePatchId(new Map(prev),mDoc.id_primary,e=>({...e,documents:merged})));
+      addToast("s",`${docs.length} doc(s) gravado(s) no banco`);
+    } catch(e){ swalError("Erro ao adicionar documentos",e.message); throw e; }
+  },[mDoc,addToast]);
+
+  const handleExport=useCallback(async()=>{
+    try{
+      const r=await fx(`${CFG.url}/functions/v1/${CFG.exportFn}`,{headers:hdrs()});
+      if(!r.ok) throw new Error(await r.text());
+      const blob=await r.blob();
+      const cd=r.headers.get("content-disposition")||"";
+      const nm=(cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i)?.[1]&&decodeURIComponent(cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i)[1].trim()))||`atendimentos_${Date.now()}.xlsx`;
+      const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=nm;document.body.appendChild(a);a.click();a.remove();
+      addToast("s","Exportação concluída",nm);
+    } catch{
+      const lines=["semana,dia_semana,data,incidente,sistema,observacao,documentos"];
+      weekStore.forEach((wd,k)=>wd.forEach(dd=>dd.entries.forEach(e=>{const esc=v=>`"${String(v||"").replace(/"/g,'""')}"`;lines.push([esc(k),esc(dd.day),esc(e.date||""),esc(e.title),esc(e.system),esc(e.observation),esc(e.documents.join("; "))].join(","));})));
+      const blob=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8;"});
+      const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`atendimentos_${Date.now()}.csv`;document.body.appendChild(a);a.click();a.remove();
+      addToast("w","CSV exportado localmente","Edge Function indisponível");
+    }
+  },[weekStore,addToast]);
+
+  const openDetail=useCallback((day,lbl,entry)=>setMDetail({entry,day,lbl}),[]);
+  const openEdit  =useCallback(entry=>setMEdit(entry),[]);
+
+  // ── Loading inicial ──
+  if(loading&&weekStore.size===0){
+    return (
+      <div className="loader">
+        <div className="loader-inner">
+          <img src="Logo_png-removebg-preview.png" alt="RedeFlex" className="loader-logo" onError={e=>{e.target.style.display="none";}}/>
+          <div className="loader-ring"/>
+          <div className="loader-label">Conectando ao banco de dados…</div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Erro fatal (sem dados nenhum) ──
+  if(error&&weekStore.size===0&&!loading){
+    return (
+      <div className="loader">
+        <div className="loader-inner" style={{gap:12,maxWidth:480}}>
+          <span style={{fontSize:"1.5rem"}}>⚠️</span>
+          <h3 style={{fontFamily:"var(--ff-d)",fontSize:".95rem",color:"var(--t0)"}}>Erro ao conectar ao banco</h3>
+          <p style={{fontSize:".78rem",color:"var(--t1)",textAlign:"center",lineHeight:1.6}}>{error}</p>
+          <code style={{fontSize:".68rem",color:"var(--red)",background:"var(--red-dim)",padding:"8px 12px",borderRadius:8,fontFamily:"var(--ff-m)",textAlign:"left",whiteSpace:"pre-wrap"}}>Verifique: chave de API, políticas RLS, e nome da tabela em CFG.</code>
+          <button className="btn btn-a" onClick={()=>loadData()}><Ic n="reload" s={12}/>Tentar novamente</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="shell">
+      <Header
+        monday={monday} total={weekEntries} filter={filter} search={search} onSearch={setSearch}
+        notifCount={notifCount} lastUpdate={lastUpdate}
+        onPrev={()=>setMonday(p=>addDays(p,-7))}
+        onNext={()=>setMonday(p=>addDays(p,7))}
+        onToday={()=>setMonday(getMonday(new Date()))}
+        onNew={()=>setMCreate(true)}
+        onFilter={()=>setMFilter(true)}
+        onExport={handleExport}
+        onNotifs={()=>setMNotifs(true)}
+        onAnalytics={()=>setMAnalytics(true)}
+      />
+
+      <div className="board">
+        {weekData.map((dayData,idx)=>{
+          const dateObj=addDays(monday,idx);
+          return (
+            <DayCol key={dayData.day} dayData={dayData} dateObj={dateObj} today={isToday(dateObj)}
+              search={dSearch} filter={filter}
+              onOpen={openDetail} onEdit={openEdit} onDelete={handleDelete}
+            />
+          );
+        })}
+      </div>
+
+      <Toasts toasts={toasts}/>
+
+      <CreateModal open={mCreate} onClose={()=>setMCreate(false)} onSave={handleSave} systems={allSystems}/>
+      <DetailModal open={!!mDetail} entry={mDetail?.entry} dayName={mDetail?.day} dateLabel={mDetail?.lbl}
+        onClose={()=>setMDetail(null)}
+        onDelete={()=>{const e=mDetail.entry;handleDelete(e);}}
+        onEdit={()=>{setMEdit(mDetail.entry);setMDetail(null);}}
+        onAddDoc={()=>{setMDoc(mDetail.entry);setMDetail(null);}}
+        copyFn={copyFn}
+      />
+      <EditModal open={!!mEdit} entry={mEdit} onClose={()=>setMEdit(null)} onSave={handleEdit}/>
+      <AddDocModal open={!!mDoc} onClose={()=>setMDoc(null)} onAdd={handleAddDoc}/>
+      <FilterModal open={mFilter} onClose={()=>setMFilter(false)} systems={weekSystems} active={filter} onApply={setFilter}/>
+      <NotifsModal open={mNotifs} onClose={()=>setMNotifs(false)} notifs={notifs}/>
+      {mAnalytics&&<AnalyticsModal open={mAnalytics} onClose={()=>setMAnalytics(false)} weekStore={weekStore} initMonday={monday}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
 </html>
