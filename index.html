@@ -3,20 +3,40 @@
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
   <title>N3 Ops · Painel de Atendimentos</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@10..48,400;10..48,600;10..48,700;10..48,800&family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet" />
-  <link rel="icon" type="image/png" href="favicon-32x32-removebg-preview">
+
+  <!--
+  ══════════════════════════════════════════════════════════════
+  LIBS LOCAIS — Baixe cada arquivo e coloque na pasta libs/
+  ══════════════════════════════════════════════════════════════
+  libs/react.min.js       → https://unpkg.com/react@18/umd/react.production.min.js
+  libs/react-dom.min.js   → https://unpkg.com/react-dom@18/umd/react-dom.production.min.js
+  libs/babel.min.js       → https://unpkg.com/@babel/standalone/babel.min.js
+  libs/chart.min.js       → https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js
+  libs/sweetalert2.min.js → https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js
+  ══════════════════════════════════════════════════════════════
+  -->
+
+  <link rel="icon" type="image/png" href="favicon-32x32-removebg-preview.png">
   <link rel="stylesheet" href="styles.css" />
+
+  <style>
+    /* Fallback de fontes caso Google Fonts esteja bloqueado */
+    :root {
+      --ff-d: 'Segoe UI', system-ui, sans-serif;
+      --ff-b: 'Segoe UI', system-ui, sans-serif;
+      --ff-m: 'Consolas', 'Courier New', monospace;
+    }
+  </style>
 </head>
 <body>
 <div id="root"></div>
 
-<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<!-- ══ LIBS LOCAIS ══ -->
+<script src="libs/react.min.js"></script>
+<script src="libs/react-dom.min.js"></script>
+<script src="libs/chart.min.js"></script>
+<script src="libs/sweetalert2.min.js"></script>
+<script src="libs/babel.min.js"></script>
 
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef, useMemo, useDeferredValue, memo } = React;
@@ -29,8 +49,8 @@ const CFG = {
   key:      "sb_publishable_skavb40bqySKywet3yAWgA_RF0_uI4c",
   table:    "base_atentimento",
   exportFn: "export-base-atendimentos",
-  timeout:  15000,           // ms por requisição
-  refresh:  180000,          // auto-refresh (3 min)
+  timeout:  15000,
+  refresh:  180000,
 };
 
 const DAYS     = ["SEGUNDA","TERÇA","QUARTA","QUINTA","SEXTA"];
@@ -55,7 +75,7 @@ const nextWorkday = d => { let dt=new Date(d); dt.setHours(0,0,0,0); while(isWee
 const buildEmptyWeek = () => DAYS.map(day=>({day,entries:[]}));
 
 // ══════════════════════════════════════════════
-// HTTP (timeout + erro legível)
+// HTTP
 // ══════════════════════════════════════════════
 const hdrs = (x={}) => ({"apikey":CFG.key,"Authorization":`Bearer ${CFG.key}`,...x});
 
@@ -101,7 +121,6 @@ async function dbDelete(id) {
   const q = `${CFG.url}/rest/v1/${CFG.table}?id_primary=eq.${numId}`;
   const r = await fx(q,{method:"DELETE",headers:hdrs({"Prefer":"return=minimal"})});
   if (!r.ok) throw new Error(`Erro ao excluir (HTTP ${r.status}): ${await r.text()}`);
-  // Verificação real: consulta o banco para confirmar que o registro sumiu
   const chk = await fx(`${q}&select=id_primary`,{headers:hdrs()});
   const rows = chk.ok ? await chk.json().catch(()=>[]) : [];
   if (Array.isArray(rows)&&rows.length>0) throw new Error(
@@ -117,7 +136,6 @@ async function dbUpdate(id, patch) {
   const q = `${CFG.url}/rest/v1/${CFG.table}?id_primary=eq.${Number(id)}`;
   const r = await fx(q,{method:"PATCH",headers:hdrs({"Content-Type":"application/json","Prefer":"return=minimal"}),body:JSON.stringify(patch)});
   if (!r.ok) throw new Error(`Erro ao editar (HTTP ${r.status}): ${await r.text()}`);
-  // Verificação real: lê o registro de volta e confere se os campos mudaram
   const chk = await fx(`${q}&select=${Object.keys(patch).join(",")}`,{headers:hdrs()});
   const rows = chk.ok ? await chk.json().catch(()=>[]) : [];
   const row = Array.isArray(rows)?rows[0]:null;
@@ -162,7 +180,6 @@ function rowsToStore(rows) {
   return {store,notifs,total:rows.length};
 }
 
-// ── Mutações locais imutáveis (sem refetch, sem travar) ──
 function storeInsertRow(store,row) {
   const date=parseDateLocal(row.data); if(!date) return store;
   const di=date.getDay()-1; if(di<0||di>=DAYS.length) return store;
@@ -227,7 +244,7 @@ const swalError=(title,msg)=>Swal.fire({title,html:`<pre style="font-size:.68rem
 // ══════════════════════════════════════════════
 // CHARTS
 // ══════════════════════════════════════════════
-Chart.defaults.color="#5E5E80"; Chart.defaults.borderColor="rgba(255,255,255,.04)"; Chart.defaults.font.family="'DM Sans',sans-serif";
+Chart.defaults.color="#5E5E80"; Chart.defaults.borderColor="rgba(255,255,255,.04)"; Chart.defaults.font.family="'Segoe UI',sans-serif";
 const chartReg=new Map();
 const destroyChart=id=>{ if(chartReg.has(id)){chartReg.get(id).destroy();chartReg.delete(id);} };
 
@@ -262,7 +279,7 @@ function DonutChart({id,data}) {
       data:{labels:top.map(d=>d.label),datasets:[{data:top.map(d=>d.value),backgroundColor:PALETTE.slice(0,top.length),borderColor:"rgba(255,255,255,.05)",borderWidth:2,hoverOffset:6}]},
       options:{responsive:true,maintainAspectRatio:true,cutout:"65%",animation:{duration:450},
         plugins:{legend:{display:false},tooltip:{backgroundColor:"rgba(12,12,22,.96)",titleColor:"#F0F0FA",bodyColor:"#A0A0BE",borderColor:"rgba(255,255,255,.1)",borderWidth:1,padding:10}}},
-      plugins:[{id:"ct",beforeDraw(ch){const{ctx,width:w,height:h}=ch;ctx.save();ctx.font=`500 18px "DM Mono",monospace`;ctx.fillStyle="#F0F0FA";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(String(total),w/2,h/2-8);ctx.font=`11px "DM Sans",sans-serif`;ctx.fillStyle="#5E5E80";ctx.fillText("Total",w/2,h/2+10);ctx.restore();}}]
+      plugins:[{id:"ct",beforeDraw(ch){const{ctx,width:w,height:h}=ch;ctx.save();ctx.font=`500 18px "Consolas",monospace`;ctx.fillStyle="#F0F0FA";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(String(total),w/2,h/2-8);ctx.font=`11px "Segoe UI",sans-serif`;ctx.fillStyle="#5E5E80";ctx.fillText("Total",w/2,h/2+10);ctx.restore();}}]
     });
     chartReg.set(id,c);
     return()=>destroyChart(id);
@@ -339,7 +356,7 @@ function Modal({open,onClose,title,sub,icon,ic="sh-icon-a",wide,xl,children,foot
 }
 
 // ══════════════════════════════════════════════
-// DATE PICKER (mini calendário)
+// DATE PICKER
 // ══════════════════════════════════════════════
 function DatePicker({value,onChange}) {
   const [open,setOpen]=useState(false);
@@ -356,7 +373,7 @@ function DatePicker({value,onChange}) {
   },[open]);
 
   const y=view.getFullYear(), m=view.getMonth();
-  const startOffset=new Date(y,m,1).getDay();           // 0 = domingo
+  const startOffset=new Date(y,m,1).getDay();
   const daysInMonth=new Date(y,m+1,0).getDate();
   const cells=[];
   for(let i=0;i<startOffset;i++) cells.push(null);
@@ -364,7 +381,6 @@ function DatePicker({value,onChange}) {
 
   const selISO=toISO(value);
   const weekday=value.toLocaleDateString("pt-BR",{weekday:"long"});
-
   const pick=d=>{ onChange(d); setOpen(false); };
 
   return (
@@ -375,7 +391,6 @@ function DatePicker({value,onChange}) {
         <span className="dp-trigger-wd">{weekday}</span>
         <span className="dp-trigger-chev"><Ic n={open?"x":"next"} s={11}/></span>
       </button>
-
       {open&&(
         <div className="dp-cal" role="dialog" aria-label="Selecionar data">
           <div className="dp-head">
@@ -412,7 +427,7 @@ function DatePicker({value,onChange}) {
 }
 
 // ══════════════════════════════════════════════
-// ENTRY CARD (memo: não re-renderiza à toa)
+// ENTRY CARD
 // ══════════════════════════════════════════════
 const EntryCard = memo(function EntryCard({entry,idx,onOpen,onEdit,onDelete}) {
   return (
@@ -439,7 +454,7 @@ const EntryCard = memo(function EntryCard({entry,idx,onOpen,onEdit,onDelete}) {
 });
 
 // ══════════════════════════════════════════════
-// DAY COLUMN (memo)
+// DAY COLUMN
 // ══════════════════════════════════════════════
 const DayCol = memo(function DayCol({dayData,dateObj,today,search,filter,onOpen,onEdit,onDelete}) {
   const entries = useMemo(()=>{
@@ -467,7 +482,6 @@ const DayCol = memo(function DayCol({dayData,dateObj,today,search,filter,onOpen,
           <span className={`day-badge${entries.length>0?" has":""}`}>{entries.length}</span>
         </div>
       </div>
-
       <div className="day-entries">
         {entries.length===0
           ? <div className="day-empty">{search||filter!=="ALL"?"Nenhum resultado":"—"}</div>
@@ -477,7 +491,6 @@ const DayCol = memo(function DayCol({dayData,dateObj,today,search,filter,onOpen,
             ))
         }
       </div>
-
       {entries.length>0&&(
         <div className="day-foot">
           <span>{entries.length} demanda{entries.length!==1?"s":""}</span>
@@ -489,7 +502,7 @@ const DayCol = memo(function DayCol({dayData,dateObj,today,search,filter,onOpen,
 });
 
 // ══════════════════════════════════════════════
-// CREATE MODAL — agora com mini calendário
+// MODAIS
 // ══════════════════════════════════════════════
 function CreateModal({open,onClose,onSave,systems}) {
   const [f,setF]=useState({incident:"",document:"",system:"",observation:"",date:nextWorkday(new Date())});
@@ -524,9 +537,6 @@ function CreateModal({open,onClose,onSave,systems}) {
   );
 }
 
-// ══════════════════════════════════════════════
-// DETAIL MODAL
-// ══════════════════════════════════════════════
 function DetailModal({open,onClose,entry,dayName,dateLabel,onDelete,onEdit,onAddDoc,copyFn}) {
   if(!entry) return null;
   return (
@@ -537,14 +547,12 @@ function DetailModal({open,onClose,entry,dayName,dateLabel,onDelete,onEdit,onAdd
         <div className="det-cell"><span className="det-lbl">ID no Banco</span><div className="det-val mono">#{entry.id_primary}</div></div>
         <div className="det-cell"><span className="det-lbl">Documentos</span><div className="det-val">{entry.documents.length} registro(s)</div></div>
       </div>
-
       {entry.observation&&(
         <div className="det-obs">
           <span className="det-lbl">Observação</span>
           <p>{entry.observation}</p>
         </div>
       )}
-
       <div className="det-docs">
         <div className="det-docs-head">
           <span>Documentos Vinculados</span>
@@ -560,7 +568,6 @@ function DetailModal({open,onClose,entry,dayName,dateLabel,onDelete,onEdit,onAdd
           ))}
         </div>
       </div>
-
       <div className="det-actions">
         <button className="btn btn-gh" onClick={onAddDoc}><Ic n="doc" s={12}/>+ Documento</button>
         <button className="btn btn-b" onClick={onEdit}><Ic n="edit" s={12}/>Editar</button>
@@ -570,9 +577,6 @@ function DetailModal({open,onClose,entry,dayName,dateLabel,onDelete,onEdit,onAdd
   );
 }
 
-// ══════════════════════════════════════════════
-// EDIT MODAL
-// ══════════════════════════════════════════════
 function EditModal({open,onClose,entry,onSave}) {
   const [f,setF]=useState({incident:"",system:"",observation:""});
   const [busy,setBusy]=useState(false);
@@ -596,9 +600,6 @@ function EditModal({open,onClose,entry,onSave}) {
   );
 }
 
-// ══════════════════════════════════════════════
-// ADD DOC MODAL — agora persiste no banco
-// ══════════════════════════════════════════════
 function AddDocModal({open,onClose,onAdd}) {
   const [val,setVal]=useState("");
   const [busy,setBusy]=useState(false);
@@ -620,9 +621,6 @@ function AddDocModal({open,onClose,onAdd}) {
   );
 }
 
-// ══════════════════════════════════════════════
-// FILTER MODAL
-// ══════════════════════════════════════════════
 function FilterModal({open,onClose,systems,active,onApply}) {
   const [sel,setSel]=useState("ALL");
   useEffect(()=>{if(open)setSel(active);},[open,active]);
@@ -641,9 +639,6 @@ function FilterModal({open,onClose,systems,active,onApply}) {
   );
 }
 
-// ══════════════════════════════════════════════
-// NOTIFICATIONS MODAL
-// ══════════════════════════════════════════════
 function NotifsModal({open,onClose,notifs}) {
   const now=new Date();
   const WINS=[{id:"m",label:"12:00",h0:0,h1:12},{id:"a",label:"16:00",h0:12,h1:16}];
@@ -680,9 +675,6 @@ function NotifsModal({open,onClose,notifs}) {
   );
 }
 
-// ══════════════════════════════════════════════
-// ANALYTICS MODAL
-// ══════════════════════════════════════════════
 function AnalyticsModal({open,onClose,weekStore,initMonday}) {
   const [monday,setMonday]=useState(initMonday);
   useEffect(()=>{if(open)setMonday(new Date(initMonday));},[open]);
@@ -721,7 +713,6 @@ function AnalyticsModal({open,onClose,weekStore,initMonday}) {
           <button onClick={()=>setMonday(addDays(monday,7))}><Ic n="next" s={12}/></button>
         </div>
       </div>
-
       <div className="kpi-row">
         {[
           {lbl:"Total Atendimentos",val:String(total)},
@@ -736,7 +727,6 @@ function AnalyticsModal({open,onClose,weekStore,initMonday}) {
           </div>
         ))}
       </div>
-
       <div className="charts-grid">
         <div className="ch-panel ch-panel-w">
           <div className="ch-title">Demandas por Dia</div>
@@ -762,7 +752,6 @@ function AnalyticsModal({open,onClose,weekStore,initMonday}) {
           <div className="ch-title">Documentos por Dia</div>
           <BarChart id="an-docs" data={byDayDocs}/>
         </div>
-
         <div className="ch-panel">
           <div className="ch-title">Breakdown por Sistema</div>
           <div className="ch-area">
@@ -797,7 +786,6 @@ function Header({monday,total,filter,search,onSearch,notifCount,onPrev,onNext,on
   const friday=addDays(monday,4);
   const fmt=d=>`${String(d.getDate()).padStart(2,"0")} ${MONTHS[d.getMonth()]}`;
   const onCurrentWeek = wkKey(monday)===wkKey(getMonday(new Date()));
-
   return (
     <header className="hdr">
       <img src="Logo_png-removebg-preview.png" alt="RedeFlex" className="hdr-logo" onError={e=>{e.target.style.display="none";}}/>
@@ -805,7 +793,6 @@ function Header({monday,total,filter,search,onSearch,notifCount,onPrev,onNext,on
       <span className="hdr-title">Painel de Atendimentos</span>
       <span className="hdr-badge">N3</span>
       <div className="hdr-vsep"/>
-
       <div className="wk-nav">
         <button className="wk-arr" onClick={onPrev} aria-label="Semana anterior"><Ic n="prev" s={13}/></button>
         <button className="wk-lbl" onClick={onToday} title={onCurrentWeek?"Semana atual":"Voltar para a semana atual"}>
@@ -814,22 +801,17 @@ function Header({monday,total,filter,search,onSearch,notifCount,onPrev,onNext,on
         </button>
         <button className="wk-arr" onClick={onNext} aria-label="Próxima semana"><Ic n="next" s={13}/></button>
       </div>
-
       <div className="hdr-search">
         <Ic n="search" s={12}/>
         <input value={search} onChange={e=>onSearch(e.target.value)} placeholder="Buscar incidente, sistema…" aria-label="Buscar demandas"/>
         {search&&<span style={{cursor:"pointer",color:"var(--t2)",fontSize:".7rem"}} onClick={()=>onSearch("")}>×</span>}
       </div>
-
       <div className="hdr-sp"/>
-
       <div className="hdr-total" title={lastUpdate?"Sincronizado às "+lastUpdate:""}>
         <div className="hdr-total-n">{total}</div>
         <div className="hdr-total-lbl">atendimentos<br/>esta semana</div>
       </div>
-
       <div className="hdr-vsep"/>
-
       <button className={`hbtn${filter!=="ALL"?" active":""}`} onClick={onFilter}><Ic n="filter" s={13}/>{filter==="ALL"?"Filtrar":filter}</button>
       <button className="hbtn" onClick={onAnalytics}><Ic n="chart" s={13}/>Analytics</button>
       <button className="hbtn hbtn-icon" onClick={onNotifs} style={{position:"relative"}} title="Alertas">
@@ -837,7 +819,6 @@ function Header({monday,total,filter,search,onSearch,notifCount,onPrev,onNext,on
         {notifCount>0&&<span className="notif-dot"/>}
       </button>
       <button className="hbtn hbtn-icon" onClick={onExport} title="Exportar base"><Ic n="dl" s={13}/></button>
-
       <div className="hdr-vsep"/>
       <button className="hbtn hbtn-primary" onClick={onNew}><Ic n="plus" s={13}/>Novo Registro</button>
     </header>
@@ -854,12 +835,11 @@ function App() {
   const [monday,setMonday]=useState(getMonday(new Date()));
   const [filter,setFilter]=useState("ALL");
   const [search,setSearch]=useState("");
-  const dSearch=useDeferredValue(search);          // busca sem travar a digitação
+  const dSearch=useDeferredValue(search);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState(null);
   const [lastUpdate,setLastUpdate]=useState(null);
 
-  // Modals
   const [mCreate,setMCreate]=useState(false);
   const [mDetail,setMDetail]=useState(null);
   const [mEdit,setMEdit]=useState(null);
@@ -872,7 +852,6 @@ function App() {
   const copy=useCopyToClipboard();
   const copyFn=useCallback(t=>copy(t,(type,msg,sub)=>addToast(type,msg,sub)),[copy,addToast]);
 
-  // ── Sincronização completa (inicial + background) ──
   const loadData=useCallback(async(quiet=false)=>{
     if(!quiet) setLoading(true);
     try {
@@ -890,7 +869,6 @@ function App() {
 
   useEffect(()=>{ loadData(); },[]);
 
-  // Auto-refresh (pausa quando a aba está oculta; sincroniza ao voltar)
   useEffect(()=>{
     const id=setInterval(()=>{ if(!document.hidden) loadData(true); },CFG.refresh);
     const vis=()=>{ if(!document.hidden) loadData(true); };
@@ -898,7 +876,6 @@ function App() {
     return()=>{ clearInterval(id); document.removeEventListener("visibilitychange",vis); };
   },[loadData]);
 
-  // Atalhos de teclado
   useEffect(()=>{
     const h=e=>{
       if(document.querySelector(".overlay")) return;
@@ -913,14 +890,12 @@ function App() {
     return()=>window.removeEventListener("keydown",h);
   },[loadData]);
 
-  // ── Derivados ──
   const weekData=useMemo(()=>weekStore.get(wkKey(monday))||buildEmptyWeek(),[weekStore,monday]);
   const weekEntries=useMemo(()=>weekData.reduce((a,d)=>a+d.entries.length,0),[weekData]);
   const allSystems=useMemo(()=>{const s=new Set();weekStore.forEach(w=>w.forEach(d=>d.entries.forEach(e=>e.system&&s.add(e.system))));return[...s].sort();},[weekStore]);
   const weekSystems=useMemo(()=>{const s=new Set();weekData.forEach(d=>d.entries.forEach(e=>e.system&&s.add(e.system)));return[...s].sort();},[weekData]);
   const notifCount=useMemo(()=>{const n=new Date();return notifs.filter(x=>{const d=new Date(x.createdAt);return!isNaN(d)&&d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()&&d.getDate()===n.getDate();}).length;},[notifs]);
 
-  // ── Handlers (mutação local imediata, sem refetch completo) ──
   const handleSave=useCallback(async f=>{
     try {
       const nextId=await dbNextId();
@@ -929,7 +904,7 @@ function App() {
       setWeekStore(prev=>storeInsertRow(new Map(prev),row));
       setNotifs(p=>[...p,{incident:row.incidente,document:row.documento,system:row.sistema,day:DAYS[parseDateLocal(row.data).getDay()-1],createdAt:new Date().toISOString()}]);
       setTotalDB(t=>t+1);
-      setMonday(getMonday(f.date));         // navega para a semana do registro
+      setMonday(getMonday(f.date));
       setMCreate(false);
       addToast("s","Registro salvo",`${row.incidente} · ${fmtDate(f.date)}`);
     } catch(e){
@@ -992,7 +967,6 @@ function App() {
   const openDetail=useCallback((day,lbl,entry)=>setMDetail({entry,day,lbl}),[]);
   const openEdit  =useCallback(entry=>setMEdit(entry),[]);
 
-  // ── Loading inicial ──
   if(loading&&weekStore.size===0){
     return (
       <div className="loader">
@@ -1005,7 +979,6 @@ function App() {
     );
   }
 
-  // ── Erro fatal (sem dados nenhum) ──
   if(error&&weekStore.size===0&&!loading){
     return (
       <div className="loader">
@@ -1034,7 +1007,6 @@ function App() {
         onNotifs={()=>setMNotifs(true)}
         onAnalytics={()=>setMAnalytics(true)}
       />
-
       <div className="board">
         {weekData.map((dayData,idx)=>{
           const dateObj=addDays(monday,idx);
@@ -1046,9 +1018,7 @@ function App() {
           );
         })}
       </div>
-
       <Toasts toasts={toasts}/>
-
       <CreateModal open={mCreate} onClose={()=>setMCreate(false)} onSave={handleSave} systems={allSystems}/>
       <DetailModal open={!!mDetail} entry={mDetail?.entry} dayName={mDetail?.day} dateLabel={mDetail?.lbl}
         onClose={()=>setMDetail(null)}
